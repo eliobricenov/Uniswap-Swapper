@@ -1,8 +1,14 @@
 import { FC, useCallback, useEffect, useState } from 'react';
-import { ChainId, Fetcher, Route, Token } from '@uniswap/sdk';
-
-// DAI '0x6B175474E89094C44Da98b954EedeAC495271d0F'
-// WETH '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'
+import {
+  ChainId,
+  Fetcher,
+  Route,
+  Token,
+  TokenAmount,
+  Trade,
+  TradeType,
+  JSBI,
+} from '@uniswap/sdk';
 
 const chainId = ChainId.MAINNET;
 const inputRegex = RegExp(`^\\d*(?:\\\\[.])?\\d*$`);
@@ -36,6 +42,7 @@ const Swap: FC<Props> = ({ hostToken, targetToken }: Props) => {
   const [route, setRoute] = useState<Route | null>(null);
   const [hostAmount, setHostAmount] = useState<SwapValue>(defaultSwapValue);
   const [targetAmount, setTargetAmount] = useState<SwapValue>(defaultSwapValue);
+  const [trade, setTrade] = useState<Trade | null>();
 
   const fetchRouter = useCallback(async () => {
     try {
@@ -95,6 +102,17 @@ const Swap: FC<Props> = ({ hostToken, targetToken }: Props) => {
       value: +newHostAmount,
     });
   };
+
+  useEffect(() => {
+    if (route && hostToken.address && targetAmount.value > 0) {
+      const host = new Token(chainId, hostToken.address, 18);
+      const amount = new TokenAmount(
+        host,
+        JSBI.BigInt(Math.trunc(targetAmount.value)),
+      );
+      setTrade(new Trade(route, amount, TradeType.EXACT_INPUT));
+    }
+  }, [route, hostToken, targetAmount]);
 
   useEffect(() => {
     fetchRouter();
