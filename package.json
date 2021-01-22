@@ -16,6 +16,8 @@
     "@types/react": "^16.9.53",
     "@types/react-dom": "^16.9.8",
     "@uniswap/sdk": "^3.0.3",
+    "bignumber.js": "^9.0.1",
+    "ethers": "^5.0.26",
     "react": "^17.0.1",
     "react-dom": "^17.0.1",
     "react-scripts": "4.0.1",
