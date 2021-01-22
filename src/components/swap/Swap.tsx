@@ -1,5 +1,4 @@
 import React, { FC, useCallback, useEffect, useState } from 'react';
-import { ethers } from 'ethers';
 import {
   ChainId,
   CurrencyAmount,
@@ -14,56 +13,8 @@ import {
   TradeType,
 } from '@uniswap/sdk';
 import formattedPriceImpact from '../FormattedPriceImpact';
-
-const chainId = ChainId.MAINNET;
-
-const provider = new ethers.providers.JsonRpcProvider(
-  'https://eth-mainnet.alchemyapi.io/v2/iAR-_vVVMF16FADwItPv7SEayXW0-Ee9',
-);
-
-const inputRegex = RegExp(`^\\d*(?:\\\\[.])?\\d*$`);
-const escapeRegExp = (input: string) => {
-  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-};
-
-// const BASE_FEE = new Percent(JSBI.BigInt(30), JSBI.BigInt(10000));
-// const ONE_HUNDRED_PERCENT = new Percent(JSBI.BigInt(10000), JSBI.BigInt(10000));
-// const INPUT_FRACTION_AFTER_FEE = ONE_HUNDRED_PERCENT.subtract(BASE_FEE);
-
-// const getPriceImpact = (trade: Trade) => {
-//   const realizedLPFee = ONE_HUNDRED_PERCENT.subtract(
-//     trade.route.pairs.reduce<Fraction>(
-//       (currentFee: Fraction): Fraction =>
-//         currentFee.multiply(INPUT_FRACTION_AFTER_FEE),
-//       ONE_HUNDRED_PERCENT,
-//     ),
-//   );
-
-//   const priceImpactWithoutFeeFraction = trade.priceImpact.subtract(
-//     realizedLPFee,
-//   );
-
-//   return new Percent(
-//     priceImpactWithoutFeeFraction?.numerator,
-//     priceImpactWithoutFeeFraction?.denominator,
-//   );
-// };
-
-const basisPointsToPercent = (num: number): Percent => {
-  return new Percent(JSBI.BigInt(num), JSBI.BigInt(10000));
-};
-
-const computeSlippageAdjustedAmounts = (
-  trade: Trade,
-): Record<string, CurrencyAmount> => {
-  const pct = basisPointsToPercent(2);
-  return {
-    max: trade.maximumAmountIn(pct),
-    min: trade.minimumAmountOut(pct),
-  };
-};
-
-export interface SwapCandidate {
+import { BaseProvider } from '@ethersproject/providers';
+interface SwapCandidate {
   address: string;
   name: string;
   decimals: number;
@@ -72,7 +23,9 @@ export interface SwapCandidate {
 type Props = {
   origin: SwapCandidate;
   target: SwapCandidate;
+  chainId: ChainId;
   slippagePercentage?: number;
+  provider?: BaseProvider;
 };
 
 type SwapState = {
@@ -105,16 +58,35 @@ const initialTradeState: TradeState = {
   realizedLPFee: null,
 };
 
+const inputRegex = RegExp(`^\\d*(?:\\\\[.])?\\d*$`);
 const BASE_FEE = new Percent(JSBI.BigInt(30), JSBI.BigInt(10000));
 const ONE_HUNDRED_PERCENT = new Percent(JSBI.BigInt(10000), JSBI.BigInt(10000));
 const INPUT_FRACTION_AFTER_FEE = ONE_HUNDRED_PERCENT.subtract(BASE_FEE);
 
-function computeTradePriceBreakdown(
+const escapeRegExp = (input: string) => {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
+const basisPointsToPercent = (num: number): Percent => {
+  return new Percent(JSBI.BigInt(num), JSBI.BigInt(10000));
+};
+
+const computeSlippageAdjustedAmounts = (
+  trade: Trade,
+): Record<string, CurrencyAmount> => {
+  const pct = basisPointsToPercent(2);
+  return {
+    max: trade.maximumAmountIn(pct),
+    min: trade.minimumAmountOut(pct),
+  };
+};
+
+const computeTradePriceBreakdown = (
   trade?: Trade | null,
 ): {
   priceImpactWithoutFee: Percent | undefined;
   realizedLPFee: CurrencyAmount | undefined | null;
-} {
+} => {
   // for each hop in our trade, take away the x*y=k price impact from 0.3% fees
   // e.g. for 3 tokens/2 hops: 1 - ((1 - .03) * (1-.03))
   const realizedLPFee = !trade
@@ -158,9 +130,9 @@ function computeTradePriceBreakdown(
     priceImpactWithoutFee: priceImpactWithoutFeePercent,
     realizedLPFee: realizedLPFeeAmount,
   };
-}
+};
 
-const Swap: FC<Props> = ({ origin, target }: Props) => {
+const Swap: FC<Props> = ({ origin, target, chainId, provider }: Props) => {
   const [loading, setLoading] = useState(false);
   const [swapInformation, setSwapInformation] = useState(initialSwapState);
   const [tradeInformation, setTradeInformation] = useState(initialTradeState);
@@ -170,7 +142,11 @@ const Swap: FC<Props> = ({ origin, target }: Props) => {
       setLoading(true);
       const originToken = new Token(chainId, origin.address, origin.decimals);
       const targetToken = new Token(chainId, target.address, target.decimals);
-      const pair = await Fetcher.fetchPairData(originToken, targetToken, provider);
+      const pair = await Fetcher.fetchPairData(
+        originToken,
+        targetToken,
+        provider,
+      );
       const originToTarget = new Route([pair], originToken);
       const targetToOrigin = new Route([pair], targetToken);
       setSwapInformation({
@@ -184,7 +160,7 @@ const Swap: FC<Props> = ({ origin, target }: Props) => {
     } finally {
       setLoading(false);
     }
-  }, [origin, target]);
+  }, [origin, target, chainId, provider]);
 
   const handleHostAmountChange = (swapInput: string) => {
     const isValidChange = inputRegex.test(escapeRegExp(swapInput));
@@ -203,6 +179,7 @@ const Swap: FC<Props> = ({ origin, target }: Props) => {
     }
 
     const { originToken, originToTarget } = swapInformation;
+
     const amount = new TokenAmount(
       originToken!,
       JSBI.multiply(
@@ -210,6 +187,7 @@ const Swap: FC<Props> = ({ origin, target }: Props) => {
         JSBI.exponentiate(JSBI.BigInt(10), JSBI.BigInt(origin.decimals)),
       ),
     );
+
     const trade = new Trade(originToTarget!, amount, TradeType.EXACT_INPUT);
 
     const { priceImpactWithoutFee, realizedLPFee } = computeTradePriceBreakdown(
@@ -223,8 +201,6 @@ const Swap: FC<Props> = ({ origin, target }: Props) => {
       hostAmount: swapInput,
       targetAmount: trade.outputAmount.toSignificant(6),
     });
-
-    // console.log('invert =>', originToTarget?.midPrice.invert().toSignificant(6));
   };
 
   const handleTargetAmountChange = (swapInput: string) => {
@@ -244,6 +220,7 @@ const Swap: FC<Props> = ({ origin, target }: Props) => {
     }
 
     const { targetToken, targetToOrigin } = swapInformation;
+
     const amount = new TokenAmount(
       targetToken!,
       JSBI.multiply(
@@ -251,7 +228,9 @@ const Swap: FC<Props> = ({ origin, target }: Props) => {
         JSBI.exponentiate(JSBI.BigInt(10), JSBI.BigInt(target.decimals)),
       ),
     );
+
     const trade = new Trade(targetToOrigin!, amount, TradeType.EXACT_INPUT);
+
     const { priceImpactWithoutFee, realizedLPFee } = computeTradePriceBreakdown(
       trade,
     );
@@ -260,8 +239,8 @@ const Swap: FC<Props> = ({ origin, target }: Props) => {
       trade,
       priceImpactWithoutFee,
       realizedLPFee,
-      hostAmount: swapInput,
-      targetAmount: trade.outputAmount.toSignificant(6),
+      targetAmount: swapInput,
+      hostAmount: trade.outputAmount.toSignificant(6),
     });
   };
 
@@ -309,6 +288,8 @@ const Swap: FC<Props> = ({ origin, target }: Props) => {
                 onChange={(v) => handleTargetAmountChange(v.target.value)}
               />
             </label>
+            <br />
+            <br />
             {!tradeInformation.trade ? null : (
               <>
                 <div>
@@ -317,12 +298,14 @@ const Swap: FC<Props> = ({ origin, target }: Props) => {
                       (computeSlippageAdjustedAmounts(
                         tradeInformation.trade,
                       ).min.toSignificant(4) ?? '-') +
-                      (tradeInformation.trade.outputAmount.currency.symbol ?? '')
+                      (tradeInformation.trade.outputAmount.currency.symbol ??
+                        '')
                     : 'Maximum sold: ' +
                       (computeSlippageAdjustedAmounts(
                         tradeInformation.trade,
                       ).max.toSignificant(4) ?? '-') +
-                      (tradeInformation.trade.inputAmount.currency.symbol ?? '')}
+                      (tradeInformation.trade.inputAmount.currency.symbol ??
+                        '')}
                 </div>
                 <div>
                   Price Impact:{' '}
