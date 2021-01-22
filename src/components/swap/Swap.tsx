@@ -8,26 +8,49 @@ import {
   Trade,
   TradeType,
   JSBI,
+  Percent,
+  Fraction,
 } from '@uniswap/sdk';
 
 const chainId = ChainId.MAINNET;
 const inputRegex = RegExp(`^\\d*(?:\\\\[.])?\\d*$`);
-
-// zero values are turned into ''
-const sanitizeZeroValues = (value: string) => (+value > 0 ? value : '');
-
 const escapeRegExp = (input: string) => {
   return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
+const BASE_FEE = new Percent(JSBI.BigInt(30), JSBI.BigInt(10000));
+const ONE_HUNDRED_PERCENT = new Percent(JSBI.BigInt(10000), JSBI.BigInt(10000));
+const INPUT_FRACTION_AFTER_FEE = ONE_HUNDRED_PERCENT.subtract(BASE_FEE);
+
+const getPriceImpact = (trade: Trade) => {
+  const realizedLPFee = ONE_HUNDRED_PERCENT.subtract(
+    trade.route.pairs.reduce<Fraction>(
+      (currentFee: Fraction): Fraction =>
+        currentFee.multiply(INPUT_FRACTION_AFTER_FEE),
+      ONE_HUNDRED_PERCENT,
+    ),
+  );
+
+  const priceImpactWithoutFeeFraction = trade.priceImpact.subtract(
+    realizedLPFee,
+  );
+
+  return new Percent(
+    priceImpactWithoutFeeFraction?.numerator,
+    priceImpactWithoutFeeFraction?.denominator,
+  );
 };
 
 export interface SwapCandidate {
   address: string;
   name: string;
+  decimals: number;
 }
 
 type Props = {
   hostToken: SwapCandidate;
   targetToken: SwapCandidate;
+  slippagePercentage?: number;
 };
 
 type SwapValue = {
@@ -35,20 +58,29 @@ type SwapValue = {
   value: number;
 };
 
-const defaultSwapValue: SwapValue = { displayValue: '', value: 0 };
-
-const Swap: FC<Props> = ({ hostToken, targetToken }: Props) => {
+const Swap: FC<Props> = ({
+  hostToken,
+  targetToken,
+  slippagePercentage = 1,
+}: Props) => {
+  // const slippageTolerance = new Percent(
+  //   JSBI.BigInt(slippagePercentage),
+  //   JSBI.BigInt(10000),
+  // );
   const [loading, setLoading] = useState(false);
   const [route, setRoute] = useState<Route | null>(null);
-  const [hostAmount, setHostAmount] = useState<SwapValue>(defaultSwapValue);
-  const [targetAmount, setTargetAmount] = useState<SwapValue>(defaultSwapValue);
-  const [trade, setTrade] = useState<Trade | null>();
+  const [hostAmount, setHostAmount] = useState('');
+  const [targetAmount, setTargetAmount] = useState('');
 
   const fetchRouter = useCallback(async () => {
     try {
       setLoading(true);
-      const host = new Token(chainId, hostToken.address, 18);
-      const target = new Token(chainId, targetToken.address, 18);
+      const host = new Token(chainId, hostToken.address, hostToken.decimals);
+      const target = new Token(
+        chainId,
+        targetToken.address,
+        targetToken.decimals,
+      );
       const pair = await Fetcher.fetchPairData(host, target);
       const route = new Route([pair], host);
       setRoute(route);
@@ -59,67 +91,64 @@ const Swap: FC<Props> = ({ hostToken, targetToken }: Props) => {
     }
   }, [hostToken, targetToken]);
 
-  const handleHostAmountChange = (swapInput: string, route: Route) => {
+  const handleHostAmountChange = (swapInput: string) => {
     const isValidChange = inputRegex.test(escapeRegExp(swapInput));
 
     if (!isValidChange) {
       return;
     }
 
-    const hostToTargetSwapValue = +route.midPrice.toSignificant(6);
-    const amountCalculation = +swapInput * hostToTargetSwapValue;
-    const newTargetAmount = amountCalculation.toPrecision(6);
+    if (!swapInput) {
+      setHostAmount('');
+      setTargetAmount('');
+      return
+    }
 
-    setHostAmount({
-      displayValue: sanitizeZeroValues(swapInput),
-      value: +swapInput,
-    });
-
-    setTargetAmount({
-      displayValue: sanitizeZeroValues(String(newTargetAmount)),
-      value: +newTargetAmount,
-    });
+    const host = new Token(chainId, hostToken.address, hostToken.decimals);
+    const amount = new TokenAmount(
+      host,
+      JSBI.multiply(
+        JSBI.BigInt(swapInput),
+        JSBI.exponentiate(JSBI.BigInt(10), JSBI.BigInt(hostToken.decimals)),
+      ),
+    );
+    const trade = new Trade(route!, amount, TradeType.EXACT_INPUT);
+    setHostAmount(swapInput);
+    setTargetAmount(trade.outputAmount.toSignificant(6));
   };
 
-  const handleTargetAmountChange = (change: string, route: Route) => {
-    const isValidChange = inputRegex.test(escapeRegExp(change));
+  const handleTargetAmountChange = (swapInput: string) => {
+    const isValidChange = inputRegex.test(escapeRegExp(swapInput));
 
     if (!isValidChange) {
       return;
     }
 
-    const targetToHostSwapValue = +route.midPrice.invert().toSignificant(6);
-    const amountCalculation = +change * targetToHostSwapValue;
-    const newHostAmount = amountCalculation.toPrecision(6);
-
-    setTargetAmount({
-      displayValue: sanitizeZeroValues(change),
-      value: +change,
-    });
-
-    setHostAmount({
-      displayValue: sanitizeZeroValues(String(newHostAmount)),
-      value: +newHostAmount,
-    });
-  };
-
-  useEffect(() => {
-    if (route && hostToken.address && targetAmount.value > 0) {
-      const host = new Token(chainId, hostToken.address, 18);
-      const amount = new TokenAmount(
-        host,
-        JSBI.BigInt(Math.trunc(targetAmount.value)),
-      );
-      setTrade(new Trade(route, amount, TradeType.EXACT_INPUT));
+    if (!swapInput) {
+      setHostAmount('');
+      setTargetAmount('');
+      return
     }
-  }, [route, hostToken, targetAmount]);
+
+    const host = new Token(chainId, hostToken.address, hostToken.decimals);
+    const amount = new TokenAmount(
+      host,
+      JSBI.multiply(
+        JSBI.BigInt(swapInput),
+        JSBI.exponentiate(JSBI.BigInt(10), JSBI.BigInt(hostToken.decimals)),
+      ),
+    );
+    const trade = new Trade(route!, amount, TradeType.EXACT_INPUT);
+    setTargetAmount(swapInput);
+    setHostAmount(trade.outputAmount.invert().toSignificant(6));
+  };
 
   useEffect(() => {
     fetchRouter();
 
     return () => {
-      setHostAmount(defaultSwapValue);
-      setTargetAmount(defaultSwapValue);
+      setHostAmount('');
+      setTargetAmount('');
     };
   }, [fetchRouter]);
 
@@ -133,7 +162,7 @@ const Swap: FC<Props> = ({ hostToken, targetToken }: Props) => {
             <br />
             <br />
             <input
-              value={hostAmount.displayValue}
+              value={hostAmount}
               type="text"
               inputMode="decimal"
               autoComplete="off"
@@ -141,7 +170,7 @@ const Swap: FC<Props> = ({ hostToken, targetToken }: Props) => {
               placeholder="0.0"
               minLength={1}
               name="hostAmount"
-              onChange={(v) => handleHostAmountChange(v.target.value, route)}
+              onChange={(v) => handleHostAmountChange(v.target.value)}
             />
           </label>
           <br />
@@ -151,23 +180,50 @@ const Swap: FC<Props> = ({ hostToken, targetToken }: Props) => {
             <br />
             <br />
             <input
-              value={targetAmount.displayValue}
+              value={targetAmount}
               type="text"
               inputMode="decimal"
               autoComplete="off"
               autoCorrect="off"
               placeholder="0.0"
               minLength={1}
-              onChange={(v) => handleTargetAmountChange(v.target.value, route)}
+              onChange={(v) => handleTargetAmountChange(v.target.value)}
             />
           </label>
           <br />
           <br />
-          {hostAmount.value !== 0 && targetAmount.value !== 0 && (
-            <span>{`Price ${route.midPrice.toSignificant(6)} ${
-              hostToken.name
-            } per ${targetToken.name}`}</span>
-          )}
+          {/* {hostAmount.value !== 0 && targetAmount.value !== 0 && (
+            <>
+              <span>{`Price ${trade.executionPrice.invert().toSignificant(6)} ${
+                hostToken.name
+              } per ${targetToken.name}`}</span>
+              <br />
+              <br />
+              {trade && (
+                <>
+                  <br />
+                  <br />
+                  <span>
+                    {`Minimum Received: ${
+                      trade.minimumAmountOut(slippageTolerance).raw
+                    }`}
+                  </span>
+                  <br />
+                  <br />
+                  <span>{`Price Impact: ${getPriceImpact(trade).toFixed(
+                    6,
+                  )}`}</span>
+                  <br />
+                  <br />
+                  <span>
+                    {`Liquidity Provider Fee: ${hostAmount.value * 0.003} ${
+                      hostToken.name
+                    }`}
+                  </span>
+                </>
+              )}
+            </>
+          )} */}
         </>
       )}
     </>
