@@ -84,7 +84,7 @@ const initialState: TradeState = {
 
 const Swap: FC<Props> = ({ origin, target }: Props) => {
   const [loading, setLoading] = useState(false);
-  const [swapInformation, setSwapInformation] = useState(initialState);
+  const [tradeInformation, setTradeInformation] = useState(initialState);
   const [hostAmount, setHostAmount] = useState('');
   const [targetAmount, setTargetAmount] = useState('');
 
@@ -96,7 +96,7 @@ const Swap: FC<Props> = ({ origin, target }: Props) => {
       const pair = await Fetcher.fetchPairData(originToken, targetToken);
       const originToTarget = new Route([pair], originToken);
       const targetToOrigin = new Route([pair], targetToken);
-      setSwapInformation({
+      setTradeInformation({
         originToken,
         targetToken,
         originToTarget,
@@ -122,7 +122,7 @@ const Swap: FC<Props> = ({ origin, target }: Props) => {
       return;
     }
 
-    const { originToken, originToTarget } = swapInformation;
+    const { originToken, originToTarget } = tradeInformation;
     const amount = new TokenAmount(
       originToken!,
       JSBI.multiply(
@@ -133,6 +133,7 @@ const Swap: FC<Props> = ({ origin, target }: Props) => {
     const trade = new Trade(originToTarget!, amount, TradeType.EXACT_INPUT);
     setHostAmount(swapInput);
     setTargetAmount(trade.outputAmount.toSignificant(6));
+    // console.log('invert =>', originToTarget?.midPrice.invert().toSignificant(6));
   };
 
   const handleTargetAmountChange = (swapInput: string) => {
@@ -148,7 +149,7 @@ const Swap: FC<Props> = ({ origin, target }: Props) => {
       return;
     }
 
-    const { targetToken, targetToOrigin } = swapInformation;
+    const { targetToken, targetToOrigin } = tradeInformation;
     const amount = new TokenAmount(
       targetToken!,
       JSBI.multiply(
@@ -173,8 +174,8 @@ const Swap: FC<Props> = ({ origin, target }: Props) => {
   return (
     <>
       {loading && <span>Loading</span>}
-      {swapInformation.originToTarget &&
-        swapInformation.targetToOrigin &&
+      {tradeInformation.originToTarget &&
+        tradeInformation.targetToOrigin &&
         !loading && (
           <>
             <label>
