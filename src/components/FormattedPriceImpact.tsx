@@ -1,4 +1,3 @@
-import React from 'react'
 import {JSBI, Percent} from '@uniswap/sdk'
 
 export const ONE_BIPS = new Percent(JSBI.BigInt(1), JSBI.BigInt(10000))

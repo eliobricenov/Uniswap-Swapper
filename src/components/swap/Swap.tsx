@@ -267,15 +267,7 @@ const Swap: FC<Props> = ({ origin, target }: Props) => {
 
   useEffect(() => {
     fetchRouter();
-
-    return () => {
-      setTradeInformation({
-        ...tradeInformation,
-        hostAmount: '',
-        targetAmount: '',
-      });
-    };
-  }, [fetchRouter, tradeInformation]);
+  }, [fetchRouter]);
 
   return (
     <>
@@ -325,12 +317,12 @@ const Swap: FC<Props> = ({ origin, target }: Props) => {
                       (computeSlippageAdjustedAmounts(
                         tradeInformation.trade,
                       ).min.toSignificant(4) ?? '-') +
-                      tradeInformation.trade.outputAmount.currency.symbol
+                      (tradeInformation.trade.outputAmount.currency.symbol ?? '')
                     : 'Maximum sold: ' +
                       (computeSlippageAdjustedAmounts(
                         tradeInformation.trade,
                       ).max.toSignificant(4) ?? '-') +
-                      tradeInformation.trade.inputAmount.currency.symbol}
+                      (tradeInformation.trade.inputAmount.currency.symbol ?? '')}
                 </div>
                 <div>
                   Price Impact:{' '}
@@ -342,7 +334,7 @@ const Swap: FC<Props> = ({ origin, target }: Props) => {
                   {tradeInformation.realizedLPFee
                     ? tradeInformation.realizedLPFee?.toSignificant(6) +
                       ' ' +
-                      tradeInformation.trade.inputAmount.currency.symbol
+                      (tradeInformation.trade.inputAmount.currency.symbol ?? '')
                     : '-'}
                 </div>
               </>
