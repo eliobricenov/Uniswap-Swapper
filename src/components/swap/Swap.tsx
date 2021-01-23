@@ -14,6 +14,9 @@ import {
 } from '@uniswap/sdk';
 import formattedPriceImpact from '../FormattedPriceImpact';
 import { BaseProvider } from '@ethersproject/providers';
+import { ethers } from 'ethers';
+import contractABI, { contractAddress } from './contract';
+import BigNumber from 'bignumber.js';
 interface SwapCandidate {
   address: string;
   name: string;
@@ -182,10 +185,9 @@ const Swap: FC<Props> = ({ origin, target, chainId, provider }: Props) => {
 
     const amount = new TokenAmount(
       originToken!,
-      JSBI.multiply(
-        JSBI.BigInt(swapInput),
-        JSBI.exponentiate(JSBI.BigInt(10), JSBI.BigInt(origin.decimals)),
-      ),
+      new BigNumber(swapInput)
+        .times(new BigNumber(10).exponentiatedBy(origin.decimals))
+        .toString(),
     );
 
     const trade = new Trade(originToTarget!, amount, TradeType.EXACT_INPUT);
@@ -223,10 +225,9 @@ const Swap: FC<Props> = ({ origin, target, chainId, provider }: Props) => {
 
     const amount = new TokenAmount(
       targetToken!,
-      JSBI.multiply(
-        JSBI.BigInt(swapInput),
-        JSBI.exponentiate(JSBI.BigInt(10), JSBI.BigInt(target.decimals)),
-      ),
+      new BigNumber(swapInput)
+        .times(new BigNumber(10).exponentiatedBy(target.decimals))
+        .toString(),
     );
 
     const trade = new Trade(targetToOrigin!, amount, TradeType.EXACT_INPUT);
@@ -290,7 +291,7 @@ const Swap: FC<Props> = ({ origin, target, chainId, provider }: Props) => {
             </label>
             <br />
             <br />
-            {!tradeInformation.trade ? null : (
+            {tradeInformation.trade && (
               <>
                 <div>
                   {tradeInformation.trade.tradeType === TradeType.EXACT_INPUT
@@ -320,6 +321,41 @@ const Swap: FC<Props> = ({ origin, target, chainId, provider }: Props) => {
                       (tradeInformation.trade.inputAmount.currency.symbol ?? '')
                     : '-'}
                 </div>
+                <br />
+                <button
+                  onClick={async () => {
+                    const { trade } = tradeInformation;
+                    const abi = contractABI;
+                    const provider = new ethers.providers.Web3Provider(
+                      (window as any).ethereum,
+                    );
+                    const signer = provider.getSigner();
+                    const contract = new ethers.Contract(
+                      contractAddress,
+                      abi,
+                      signer,
+                    );
+
+                    const contractWithSigner = contract.connect(signer);
+                    console.log(
+                      '\n\n ~ onClick={ ~ contractWithSigner',
+                      contractWithSigner,
+                    );
+
+                    const slippageTolerance = new Percent('50', '10000'); // 50 bips, or 0.50%
+
+                    const amountOutMin = trade!.minimumAmountOut(
+                      slippageTolerance,
+                    ).raw; // needs to be converted to e.g. hex
+
+                    const path = [origin.address, target.address];
+                    const to = ''; // should be a checksummed recipient address
+                    const deadline = Math.floor(Date.now() / 1000) + 60 * 20; // 20 minutes from the current Unix time
+                    const value = trade!.inputAmount.toSignificant(6);
+                    console.log('\n\n ~ onClick={ ~ value', value);
+                  }}>
+                  SWAP
+                </button>
               </>
             )}
           </>

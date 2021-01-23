@@ -11,7 +11,7 @@ function App() {
     <>
       <h1>React</h1>
       <Swap
-        chainId={ChainId.MAINNET}
+        chainId={ChainId.RINKEBY}
         provider={defaultProvider}
         origin={{
           name: 'WETH',
@@ -30,5 +30,11 @@ function App() {
 
 export default App;
 
-// DAI '0x6B175474E89094C44Da98b954EedeAC495271d0F'
 // WETH '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'
+// DAI '0x6B175474E89094C44Da98b954EedeAC495271d0F'
+
+
+// RINKEBY
+// WETH 0xc778417E063141139Fce010982780140Aa0cD5Ab
+// DAI 0x5592EC0cfb4dbc12D3aB100b257153436a1f0FEa
+// USDC 0x4DBCdF9B62e891a7cec5A2568C3F4FAF9E8Abe2b
