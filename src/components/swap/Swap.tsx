@@ -16,7 +16,7 @@ import formattedPriceImpact from '../FormattedPriceImpact';
 import { BaseProvider } from '@ethersproject/providers';
 import { ethers } from 'ethers';
 import contractABI, { contractAddress } from './contract';
-import BigNumber from 'bignumber.js';
+import { parseUnits } from 'ethers/lib/utils';
 interface SwapCandidate {
   address: string;
   name: string;
@@ -185,9 +185,7 @@ const Swap: FC<Props> = ({ origin, target, chainId, provider }: Props) => {
 
     const amount = new TokenAmount(
       originToken!,
-      new BigNumber(swapInput)
-        .times(new BigNumber(10).exponentiatedBy(origin.decimals))
-        .toString(),
+      parseUnits(swapInput, origin.decimals).toString(),
     );
 
     const trade = new Trade(originToTarget!, amount, TradeType.EXACT_INPUT);
@@ -225,9 +223,7 @@ const Swap: FC<Props> = ({ origin, target, chainId, provider }: Props) => {
 
     const amount = new TokenAmount(
       targetToken!,
-      new BigNumber(swapInput)
-        .times(new BigNumber(10).exponentiatedBy(target.decimals))
-        .toString(),
+      parseUnits(swapInput, target.decimals).toString(),
     );
 
     const trade = new Trade(targetToOrigin!, amount, TradeType.EXACT_INPUT);
