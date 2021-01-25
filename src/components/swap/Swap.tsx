@@ -15,12 +15,9 @@ import {
 import formattedPriceImpact from '../FormattedPriceImpact';
 import { BaseProvider } from '@ethersproject/providers';
 import { ethers } from 'ethers';
-import contractABI, { contractAddress } from './contract';
-import { parseUnits } from 'ethers/lib/utils';
 interface SwapCandidate {
   address: string;
   name: string;
-  decimals: number;
 }
 
 type Props = {
@@ -29,6 +26,8 @@ type Props = {
   chainId: ChainId;
   slippagePercentage?: number;
   provider?: BaseProvider;
+  onError: (error: any) => void;
+  onSwap: (swap: any) => void;
 };
 
 type SwapState = {
@@ -38,13 +37,6 @@ type SwapState = {
   targetToOrigin: Route | null;
 };
 
-const initialSwapState: SwapState = {
-  originToken: null,
-  targetToken: null,
-  originToTarget: null,
-  targetToOrigin: null,
-};
-
 type TradeState = {
   trade: Trade | null;
   priceImpactWithoutFee: Percent | undefined;
@@ -52,19 +44,6 @@ type TradeState = {
   hostAmount: string;
   targetAmount: string;
 };
-
-const initialTradeState: TradeState = {
-  trade: null,
-  hostAmount: '',
-  targetAmount: '',
-  priceImpactWithoutFee: undefined,
-  realizedLPFee: null,
-};
-
-const inputRegex = RegExp(`^\\d*(?:\\\\[.])?\\d*$`);
-const BASE_FEE = new Percent(JSBI.BigInt(30), JSBI.BigInt(10000));
-const ONE_HUNDRED_PERCENT = new Percent(JSBI.BigInt(10000), JSBI.BigInt(10000));
-const INPUT_FRACTION_AFTER_FEE = ONE_HUNDRED_PERCENT.subtract(BASE_FEE);
 
 const escapeRegExp = (input: string) => {
   return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -135,7 +114,34 @@ const computeTradePriceBreakdown = (
   };
 };
 
-const Swap: FC<Props> = ({ origin, target, chainId, provider }: Props) => {
+const initialTradeState: TradeState = {
+  trade: null,
+  hostAmount: '',
+  targetAmount: '',
+  priceImpactWithoutFee: undefined,
+  realizedLPFee: null,
+};
+
+const initialSwapState: SwapState = {
+  originToken: null,
+  targetToken: null,
+  originToTarget: null,
+  targetToOrigin: null,
+};
+
+const inputRegex = RegExp(`^\\d*(?:\\\\[.])?\\d*$`);
+const BASE_FEE = new Percent(JSBI.BigInt(30), JSBI.BigInt(10000));
+const ONE_HUNDRED_PERCENT = new Percent(JSBI.BigInt(10000), JSBI.BigInt(10000));
+const INPUT_FRACTION_AFTER_FEE = ONE_HUNDRED_PERCENT.subtract(BASE_FEE);
+
+const Swap: FC<Props> = ({
+  origin,
+  target,
+  chainId,
+  provider,
+  onSwap,
+  onError,
+}: Props) => {
   const [loading, setLoading] = useState(false);
   const [swapInformation, setSwapInformation] = useState(initialSwapState);
   const [tradeInformation, setTradeInformation] = useState(initialTradeState);
@@ -143,8 +149,10 @@ const Swap: FC<Props> = ({ origin, target, chainId, provider }: Props) => {
   const fetchRouter = useCallback(async () => {
     try {
       setLoading(true);
-      const originToken = new Token(chainId, origin.address, origin.decimals);
-      const targetToken = new Token(chainId, target.address, target.decimals);
+      const [originToken, targetToken] = await Promise.all([
+        Fetcher.fetchTokenData(chainId, origin.address),
+        Fetcher.fetchTokenData(chainId, target.address),
+      ]);
       const pair = await Fetcher.fetchPairData(
         originToken,
         targetToken,
@@ -159,6 +167,7 @@ const Swap: FC<Props> = ({ origin, target, chainId, provider }: Props) => {
         targetToOrigin,
       });
     } catch (error) {
+      onError(error);
       console.log('error =>', error);
     } finally {
       setLoading(false);
@@ -167,8 +176,9 @@ const Swap: FC<Props> = ({ origin, target, chainId, provider }: Props) => {
 
   const handleHostAmountChange = (swapInput: string) => {
     const isValidChange = inputRegex.test(escapeRegExp(swapInput));
+    const { originToken, originToTarget } = swapInformation;
 
-    if (!isValidChange) {
+    if (!isValidChange || !originToken || !originToTarget) {
       return;
     }
 
@@ -181,14 +191,12 @@ const Swap: FC<Props> = ({ origin, target, chainId, provider }: Props) => {
       return;
     }
 
-    const { originToken, originToTarget } = swapInformation;
-
     const amount = new TokenAmount(
-      originToken!,
-      parseUnits(swapInput, origin.decimals).toString(),
+      originToken,
+      ethers.utils.parseUnits(swapInput, originToken.decimals).toString(),
     );
 
-    const trade = new Trade(originToTarget!, amount, TradeType.EXACT_INPUT);
+    const trade = new Trade(originToTarget, amount, TradeType.EXACT_INPUT);
 
     const { priceImpactWithoutFee, realizedLPFee } = computeTradePriceBreakdown(
       trade,
@@ -205,8 +213,9 @@ const Swap: FC<Props> = ({ origin, target, chainId, provider }: Props) => {
 
   const handleTargetAmountChange = (swapInput: string) => {
     const isValidChange = inputRegex.test(escapeRegExp(swapInput));
+    const { targetToken, targetToOrigin } = swapInformation;
 
-    if (!isValidChange) {
+    if (!isValidChange || !targetToken || !targetToOrigin) {
       return;
     }
 
@@ -219,14 +228,12 @@ const Swap: FC<Props> = ({ origin, target, chainId, provider }: Props) => {
       return;
     }
 
-    const { targetToken, targetToOrigin } = swapInformation;
-
     const amount = new TokenAmount(
-      targetToken!,
-      parseUnits(swapInput, target.decimals).toString(),
+      targetToken,
+      ethers.utils.parseUnits(swapInput, targetToken.decimals).toString(),
     );
 
-    const trade = new Trade(targetToOrigin!, amount, TradeType.EXACT_INPUT);
+    const trade = new Trade(targetToOrigin, amount, TradeType.EXACT_INPUT);
 
     const { priceImpactWithoutFee, realizedLPFee } = computeTradePriceBreakdown(
       trade,
@@ -321,34 +328,29 @@ const Swap: FC<Props> = ({ origin, target, chainId, provider }: Props) => {
                 <button
                   onClick={async () => {
                     const { trade } = tradeInformation;
-                    const abi = contractABI;
-                    const provider = new ethers.providers.Web3Provider(
-                      (window as any).ethereum,
-                    );
-                    const signer = provider.getSigner();
-                    const contract = new ethers.Contract(
-                      contractAddress,
-                      abi,
-                      signer,
-                    );
 
-                    const contractWithSigner = contract.connect(signer);
-                    console.log(
-                      '\n\n ~ onClick={ ~ contractWithSigner',
-                      contractWithSigner,
-                    );
+                    if (!trade) {
+                      return;
+                    }
 
-                    const slippageTolerance = new Percent('50', '10000'); // 50 bips, or 0.50%
-
-                    const amountOutMin = trade!.minimumAmountOut(
-                      slippageTolerance,
-                    ).raw; // needs to be converted to e.g. hex
-
+                    const slippageTolerance = new Percent('2', '1000');
+                    const amountIn = ethers.BigNumber.from(
+                      trade.inputAmount.raw.toString(),
+                    ).toHexString();
+                    const amountOutMin = ethers.BigNumber.from(
+                      trade.minimumAmountOut(slippageTolerance).raw.toString(),
+                    ).toHexString();
                     const path = [origin.address, target.address];
-                    const to = ''; // should be a checksummed recipient address
-                    const deadline = Math.floor(Date.now() / 1000) + 60 * 20; // 20 minutes from the current Unix time
-                    const value = trade!.inputAmount.toSignificant(6);
-                    console.log('\n\n ~ onClick={ ~ value', value);
+                    const to = '0x02046bfc18021f4633715984690D7A04D2C62c3e';
+                    const deadline = Math.floor(Date.now() / 1000) + 60 * 20;
+
+                    onSwap({
+                      amountIn,
+                      amountOutMin,
+                      path,
+                      to,
+                      deadline,
+                    });
                   }}>
                   SWAP
                 </button>
