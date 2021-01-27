@@ -3,9 +3,9 @@ import {
   ChainId,
   CurrencyAmount,
   Fetcher,
+  Pair,
   Percent,
   Route,
-  Token,
   TokenAmount,
   Trade,
   TradeType,
@@ -14,16 +14,16 @@ import {
 import formattedPriceImpact from '../FormattedPriceImpact';
 import { BaseProvider } from '@ethersproject/providers';
 import { ethers } from 'ethers';
-import contractABI, { contractAddress } from './contract';
 import {
   escapeRegExp,
   computeTradePriceBreakdown,
   computeSlippageAdjustedAmounts,
   inputRegex,
-  getPair,
   isNonCalculableChange,
+  fetchToken,
 } from './utils';
-interface SwapCandidate {
+import { makeSwap } from './uniswap-service';
+export interface SwapCandidate {
   address: string;
   name: string;
 }
@@ -38,15 +38,7 @@ type Props = {
   onSwap: (swap: any) => void;
 };
 
-type SwapState = {
-  originToken: Token | null;
-  targetToken: Token | null;
-  originToTarget: Route | null;
-  targetToOrigin: Route | null;
-};
-
 type TradeState = {
-  trade: Trade | null;
   priceImpactWithoutFee: Percent | undefined;
   realizedLPFee: CurrencyAmount | undefined | null;
   hostAmount: string;
@@ -54,18 +46,10 @@ type TradeState = {
 };
 
 const initialTradeState: TradeState = {
-  trade: null,
   hostAmount: '',
   targetAmount: '',
   priceImpactWithoutFee: undefined,
   realizedLPFee: null,
-};
-
-const initialSwapState: SwapState = {
-  originToken: null,
-  targetToken: null,
-  originToTarget: null,
-  targetToOrigin: null,
 };
 
 const Swap: FC<Props> = ({
@@ -76,9 +60,9 @@ const Swap: FC<Props> = ({
   ...tokens
 }: Props) => {
   const { origin = WETH[chainId], target = WETH[chainId] } = tokens;
-
   const [loading, setLoading] = useState(false);
-  const [swapInformation, setSwapInformation] = useState(initialSwapState);
+  const [pair, setPair] = useState<Pair | null>(null);
+  const [trade, setTrade] = useState<Trade | null>(null);
   const [tradeInformation, setTradeInformation] = useState(initialTradeState);
 
   const fetchRouter = useCallback(async () => {
@@ -86,20 +70,17 @@ const Swap: FC<Props> = ({
       setLoading(true);
 
       const [originToken, targetToken] = await Promise.all([
-        Fetcher.fetchTokenData(chainId, origin.address),
-        Fetcher.fetchTokenData(chainId, target.address),
+        fetchToken(chainId, origin, provider),
+        fetchToken(chainId, target, provider),
       ]);
 
-      const pair = await getPair(originToken, targetToken, provider);
-      const originToTarget = new Route([pair], originToken);
-      const targetToOrigin = new Route([pair], targetToken);
-
-      setSwapInformation({
+      const pair = await Fetcher.fetchPairData(
         originToken,
         targetToken,
-        originToTarget,
-        targetToOrigin,
-      });
+        provider,
+      );
+
+      setPair(pair); // token1 = origin; token0 = target
     } catch (error) {
       onError(error);
       console.log('error =>', error);
@@ -110,9 +91,8 @@ const Swap: FC<Props> = ({
 
   const handleHostAmountChange = (swapInput: string) => {
     const isValidChange = inputRegex.test(escapeRegExp(swapInput));
-    const { originToken, originToTarget } = swapInformation;
 
-    if (!isValidChange || !originToken || !originToTarget) {
+    if (!isValidChange || !pair) {
       return;
     }
 
@@ -125,19 +105,21 @@ const Swap: FC<Props> = ({
       return;
     }
 
-    const amount = new TokenAmount(
-      originToken,
-      ethers.utils.parseUnits(swapInput, originToken.decimals).toString(),
+    const trade = new Trade(
+      new Route([pair], pair.token1),
+      new TokenAmount(
+        pair.token1,
+        ethers.utils.parseUnits(swapInput, pair.token1.decimals).toString(),
+      ),
+      TradeType.EXACT_INPUT,
     );
-
-    const trade = new Trade(originToTarget, amount, TradeType.EXACT_INPUT);
 
     const { priceImpactWithoutFee, realizedLPFee } = computeTradePriceBreakdown(
       trade,
     );
 
+    setTrade(trade);
     setTradeInformation({
-      trade,
       priceImpactWithoutFee,
       realizedLPFee,
       hostAmount: swapInput,
@@ -147,9 +129,7 @@ const Swap: FC<Props> = ({
 
   const handleTargetAmountChange = (swapInput: string) => {
     const isValidChange = inputRegex.test(escapeRegExp(swapInput));
-    const { targetToken, targetToOrigin } = swapInformation;
-
-    if (!isValidChange || !targetToken || !targetToOrigin) {
+    if (!isValidChange || !pair) {
       return;
     }
 
@@ -162,24 +142,45 @@ const Swap: FC<Props> = ({
       return;
     }
 
-    const amount = new TokenAmount(
-      targetToken,
-      ethers.utils.parseUnits(swapInput, targetToken.decimals).toString(),
+    const trade = new Trade(
+      new Route([pair], pair.token0),
+      new TokenAmount(
+        pair.token0,
+        ethers.utils.parseUnits(swapInput, pair.token0.decimals).toString(),
+      ),
+      TradeType.EXACT_INPUT,
     );
-
-    const trade = new Trade(targetToOrigin, amount, TradeType.EXACT_INPUT);
 
     const { priceImpactWithoutFee, realizedLPFee } = computeTradePriceBreakdown(
       trade,
     );
 
     setTradeInformation({
-      trade,
       priceImpactWithoutFee,
       realizedLPFee,
       targetAmount: swapInput,
       hostAmount: trade.outputAmount.toSignificant(6),
     });
+  };
+
+  const handleSwap = async () => {
+    if (!pair || !trade) {
+      return;
+    }
+
+    const signer = new ethers.providers.Web3Provider(
+      (window as any).ethereum,
+    ).getSigner();
+
+    const tx = await makeSwap({
+      signer,
+      pair,
+      trade,
+      slippagePercentage: '2',
+    });
+
+    onSwap(tx);
+    await tx.wait();
   };
 
   useEffect(() => {
@@ -189,135 +190,83 @@ const Swap: FC<Props> = ({
   return (
     <>
       {loading && <span>Loading</span>}
-      {swapInformation.originToTarget &&
-        swapInformation.targetToOrigin &&
-        !loading && (
-          <>
-            <label>
-              {`From (${origin.name}): `}
-              <br />
-              <br />
-              <input
-                value={tradeInformation.hostAmount}
-                type="text"
-                inputMode="decimal"
-                autoComplete="off"
-                autoCorrect="off"
-                pattern="^[0-9]*[.,]?[0-9]*$"
-                placeholder="0.0"
-                minLength={1}
-                name="hostAmount"
-                onChange={(v) => handleHostAmountChange(v.target.value.replace(/,/g, '.'))}
-              />
-            </label>
+      {!loading && pair && (
+        <>
+          <label>
+            {`From (${origin.name}): `}
             <br />
             <br />
-            <label>
-              {`To (${target.name}):`}
-              <br />
-              <br />
-              <input
-                value={tradeInformation.targetAmount}
-                type="text"
-                inputMode="decimal"
-                autoComplete="off"
-                autoCorrect="off"
-                pattern="^[0-9]*[.,]?[0-9]*$"
-                placeholder="0.0"
-                minLength={1}
-                onChange={(v) => handleTargetAmountChange(v.target.value.replace(/,/g, '.'))}
-              />
-            </label>
+            <input
+              value={tradeInformation.hostAmount}
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
+              autoCorrect="off"
+              pattern="^[0-9]*[.,]?[0-9]*$"
+              placeholder="0.0"
+              minLength={1}
+              name="hostAmount"
+              onChange={(v) =>
+                handleHostAmountChange(v.target.value.replace(/,/g, '.'))
+              }
+            />
+          </label>
+          <br />
+          <br />
+          <label>
+            {`To (${target.name}):`}
             <br />
             <br />
-            {tradeInformation.trade && (
-              <>
-                <div>
-                  {tradeInformation.trade.tradeType === TradeType.EXACT_INPUT
-                    ? 'Minimum received: ' +
-                      (computeSlippageAdjustedAmounts(
-                        tradeInformation.trade,
-                      ).min.toSignificant(4) ?? '-') +
-                      (tradeInformation.trade.outputAmount.currency.symbol ??
-                        '')
-                    : 'Maximum sold: ' +
-                      (computeSlippageAdjustedAmounts(
-                        tradeInformation.trade,
-                      ).max.toSignificant(4) ?? '-') +
-                      (tradeInformation.trade.inputAmount.currency.symbol ??
-                        '')}
-                </div>
-                <div>
-                  Price Impact:{' '}
-                  {formattedPriceImpact(tradeInformation.priceImpactWithoutFee)}
-                </div>
+            <input
+              value={tradeInformation.targetAmount}
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
+              autoCorrect="off"
+              pattern="^[0-9]*[.,]?[0-9]*$"
+              placeholder="0.0"
+              minLength={1}
+              onChange={(v) =>
+                handleTargetAmountChange(v.target.value.replace(/,/g, '.'))
+              }
+            />
+          </label>
+          <br />
+          <br />
+          {tradeInformation && trade && (
+            <>
+              <div>
+                {trade.tradeType === TradeType.EXACT_INPUT
+                  ? 'Minimum received: ' +
+                    (computeSlippageAdjustedAmounts(trade).min.toSignificant(
+                      4,
+                    ) ?? '-') +
+                    (trade.outputAmount.currency.symbol ?? '')
+                  : 'Maximum sold: ' +
+                    (computeSlippageAdjustedAmounts(trade).max.toSignificant(
+                      4,
+                    ) ?? '-') +
+                    (trade.inputAmount.currency.symbol ?? '')}
+              </div>
+              <div>
+                Price Impact:{' '}
+                {formattedPriceImpact(tradeInformation.priceImpactWithoutFee)}
+              </div>
 
-                <div>
-                  Liquidity Provider Fee:{' '}
-                  {tradeInformation.realizedLPFee
-                    ? tradeInformation.realizedLPFee?.toSignificant(6) +
-                      ' ' +
-                      (tradeInformation.trade.inputAmount.currency.symbol ?? '')
-                    : '-'}
-                </div>
-                <br />
-                <button
-                  onClick={async () => {
-                    const { trade } = tradeInformation;
-
-                    if (!trade) {
-                      return;
-                    }
-
-                    const abi = contractABI;
-                    const provider = new ethers.providers.Web3Provider(
-                      (window as any).ethereum,
-                    );
-                    const signer = provider.getSigner();
-
-                    const contract = new ethers.Contract(
-                      contractAddress,
-                      abi,
-                      signer,
-                    );
-
-                    const contractWithSigner = contract.connect(signer);
-
-                    console.log(
-                      '\n\n ~ onClick={ ~ contractWithSigner',
-                      contractWithSigner,
-                    );
-
-                    const slippageTolerance = new Percent('2', '1000');
-                    const amountIn = ethers.BigNumber.from(
-                      trade.inputAmount.raw.toString(),
-                    ).toHexString();
-                    const amountOutMin = ethers.BigNumber.from(
-                      trade.minimumAmountOut(slippageTolerance).raw.toString(),
-                    ).toHexString();
-                    const path = [origin.address, target.address];
-                    const to = '0x02046bfc18021f4633715984690D7A04D2C62c3e';
-                    const deadline = Math.floor(Date.now() / 1000) + 60 * 20;
-
-                    await contractWithSigner.functions.approve([
-                      contractAddress,
-                      amountIn
-                    ]);
-
-                    onSwap({
-                      amountIn,
-                      amountOutMin,
-                      path,
-                      to,
-                      deadline,
-                    });
-                  }}>
-                  SWAP
-                </button>
-              </>
-            )}
-          </>
-        )}
+              <div>
+                Liquidity Provider Fee:{' '}
+                {tradeInformation.realizedLPFee
+                  ? tradeInformation.realizedLPFee?.toSignificant(6) +
+                    ' ' +
+                    (trade.inputAmount.currency.symbol ?? '')
+                  : '-'}
+              </div>
+              <br />
+              <button onClick={handleSwap}>SWAP</button>
+            </>
+          )}
+        </>
+      )}
     </>
   );
 };

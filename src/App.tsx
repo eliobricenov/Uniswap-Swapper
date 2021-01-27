@@ -3,23 +3,19 @@ import { ethers } from 'ethers';
 import Swap from './components/swap/Swap';
 
 const defaultProvider = new ethers.providers.JsonRpcProvider(
-  `https://eth-mainnet.alchemyapi.io/v2/${process.env.REACT_APP_ALCHEMY_API_KEY}`,
+  process.env.REACT_APP_PROVIDER_URL,
 );
 
 function App() {
   return (
     <>
-      <h1>React</h1>
+      <h1>SWAP</h1>
       <Swap
-        chainId={ChainId.MAINNET}
+        chainId={ChainId.RINKEBY}
         provider={defaultProvider}
-        origin={{
-          name: 'WBTC',
-          address: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599',
-        }}
         target={{
-          name: 'BADGER',
-          address: '0x3472A5A71965499acd81997a54BBA8D852C6E53d',
+          name: 'DAI',
+          address: '0x5592EC0cfb4dbc12D3aB100b257153436a1f0FEa',
         }}
         onSwap={() => {}}
         onError={() => {}}

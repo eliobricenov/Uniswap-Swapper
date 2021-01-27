@@ -7,16 +7,26 @@ import {
   Fraction,
   TokenAmount,
   Token,
-  Pair,
+  Fetcher,
+  ChainId,
 } from '@uniswap/sdk';
-import { ethers } from 'ethers';
-import { pairContractABI } from './contract';
+import { SwapCandidate } from './Swap';
 
 const BASE_FEE = new Percent(JSBI.BigInt(30), JSBI.BigInt(10000));
 const ONE_HUNDRED_PERCENT = new Percent(JSBI.BigInt(10000), JSBI.BigInt(10000));
 const INPUT_FRACTION_AFTER_FEE = ONE_HUNDRED_PERCENT.subtract(BASE_FEE);
 
 export const inputRegex = RegExp(`^\\d*(?:\\\\[.])?\\d*$`);
+
+export const fetchToken = async (
+  chainId: ChainId,
+  token: SwapCandidate | Token,
+  provider?: BaseProvider,
+) => {
+  return token instanceof Token
+    ? token
+    : Fetcher.fetchTokenData(chainId, token.address, provider);
+};
 
 export const escapeRegExp = (input: string) => {
   return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -85,36 +95,6 @@ export const computeTradePriceBreakdown = (
     priceImpactWithoutFee: priceImpactWithoutFeePercent,
     realizedLPFee: realizedLPFeeAmount,
   };
-};
-
-export const getPair = async (
-  a: Token,
-  b: Token,
-  provider?: BaseProvider,
-): Promise<Pair> => {
-  const pairAddress = Pair.getAddress(a, b);
-
-  const pairContract = new ethers.Contract(
-    pairAddress,
-    pairContractABI,
-    provider
-  );
-
-  const reserves = await pairContract.getReserves();
-
-  const [reserve0, reserve1] = reserves;
-
-  const tokens = [a, b];
-  const [token0, token1] = tokens[0].sortsBefore(tokens[1])
-    ? tokens
-    : [tokens[1], tokens[0]];
-
-  const pair = new Pair(
-    new TokenAmount(token0, reserve0),
-    new TokenAmount(token1, reserve1),
-  );
-
-  return pair;
 };
 
 export const isNonCalculableChange = (value: string) => {
