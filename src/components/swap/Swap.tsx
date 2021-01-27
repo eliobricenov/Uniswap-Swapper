@@ -83,7 +83,7 @@ const Swap: FC<Props> = ({
       setPair(pair); // token1 = origin; token0 = target
     } catch (error) {
       onError(error);
-      console.log('error =>', error);
+      console.error('error =>', error);
     } finally {
       setLoading(false);
     }
@@ -168,19 +168,24 @@ const Swap: FC<Props> = ({
       return;
     }
 
-    const signer = new ethers.providers.Web3Provider(
-      (window as any).ethereum,
-    ).getSigner();
-
-    const tx = await makeSwap({
-      signer,
-      pair,
-      trade,
-      slippagePercentage: '2',
-    });
-
-    onSwap(tx);
-    await tx.wait();
+    try {
+      const signer = new ethers.providers.Web3Provider(
+        (window as any).ethereum,
+      ).getSigner();
+  
+      const tx = await makeSwap({
+        signer,
+        pair,
+        trade,
+        slippagePercentage: '2',
+      });
+  
+      onSwap(tx);
+      await tx.wait();
+    } catch (error) {
+      onError(error);
+      console.error('error =>', error);
+    }
   };
 
   useEffect(() => {
