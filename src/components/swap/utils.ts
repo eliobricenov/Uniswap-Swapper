@@ -9,8 +9,9 @@ import {
   Token,
   Fetcher,
   ChainId,
+  WETH,
 } from '@uniswap/sdk';
-import { SwapCandidate } from './Swap';
+import { SwapCandidate } from './swap.types';
 
 const BASE_FEE = new Percent(JSBI.BigInt(30), JSBI.BigInt(10000));
 const ONE_HUNDRED_PERCENT = new Percent(JSBI.BigInt(10000), JSBI.BigInt(10000));
@@ -18,14 +19,39 @@ const INPUT_FRACTION_AFTER_FEE = ONE_HUNDRED_PERCENT.subtract(BASE_FEE);
 
 export const inputRegex = RegExp(`^\\d*(?:\\\\[.])?\\d*$`);
 
-export const fetchToken = async (
+export const ONE_BIPS = new Percent(JSBI.BigInt(1), JSBI.BigInt(10000));
+
+/**
+ * Formatted version of price impact text with warning colors
+ */
+export default function formattedPriceImpact(priceImpact?: Percent) {
+  return priceImpact
+    ? priceImpact.lessThan(ONE_BIPS)
+      ? '<0.01%'
+      : `${priceImpact.toFixed(2)}%`
+    : '-';
+}
+
+export const fetchTokenFromCandidate = async (
   chainId: ChainId,
-  token: SwapCandidate | Token,
-  provider?: BaseProvider,
+  candidate?: SwapCandidate,
+  provider?: BaseProvider
 ) => {
-  return token instanceof Token
-    ? token
-    : Fetcher.fetchTokenData(chainId, token.address, provider);
+  return candidate
+    ? Fetcher.fetchTokenData(
+        chainId,
+        candidate.address,
+        provider,
+        candidate.symbol,
+        candidate.name
+      )
+    : new Token(
+        chainId,
+        WETH[chainId].address,
+        WETH[chainId].decimals,
+        'ETH',
+        'Ether'
+      );
 };
 
 export const escapeRegExp = (input: string) => {
@@ -38,8 +64,13 @@ export const basisPointsToPercent = (num: number): Percent => {
 
 export const computeSlippageAdjustedAmounts = (
   trade: Trade,
+  allowedSlippage: number
 ): Record<string, CurrencyAmount> => {
-  const pct = basisPointsToPercent(2);
+  const pct = basisPointsToPercent(allowedSlippage);
+  console.log({
+    max: trade.maximumAmountIn(pct).toSignificant(4),
+    min: trade.minimumAmountOut(pct).toSignificant(4),
+  });
   return {
     max: trade.maximumAmountIn(pct),
     min: trade.minimumAmountOut(pct),
@@ -47,7 +78,7 @@ export const computeSlippageAdjustedAmounts = (
 };
 
 export const computeTradePriceBreakdown = (
-  trade?: Trade | null,
+  trade?: Trade | null
 ): {
   priceImpactWithoutFee: Percent | undefined;
   realizedLPFee: CurrencyAmount | undefined | null;
@@ -60,8 +91,8 @@ export const computeTradePriceBreakdown = (
         trade.route.pairs.reduce<Fraction>(
           (currentFee: Fraction): Fraction =>
             currentFee.multiply(INPUT_FRACTION_AFTER_FEE),
-          ONE_HUNDRED_PERCENT,
-        ),
+          ONE_HUNDRED_PERCENT
+        )
       );
 
   // remove lp fees from price impact
@@ -74,7 +105,7 @@ export const computeTradePriceBreakdown = (
   const priceImpactWithoutFeePercent = priceImpactWithoutFeeFraction
     ? new Percent(
         priceImpactWithoutFeeFraction?.numerator,
-        priceImpactWithoutFeeFraction?.denominator,
+        priceImpactWithoutFeeFraction?.denominator
       )
     : undefined;
 
@@ -85,10 +116,10 @@ export const computeTradePriceBreakdown = (
     (trade.inputAmount instanceof TokenAmount
       ? new TokenAmount(
           trade.inputAmount.token,
-          realizedLPFee.multiply(trade.inputAmount.raw).quotient,
+          realizedLPFee.multiply(trade.inputAmount.raw).quotient
         )
       : CurrencyAmount.ether(
-          realizedLPFee.multiply(trade.inputAmount.raw).quotient,
+          realizedLPFee.multiply(trade.inputAmount.raw).quotient
         ));
 
   return {

@@ -1,51 +1,43 @@
 import { FC, useCallback, useEffect, useState } from 'react';
 import {
   ChainId,
-  CurrencyAmount,
   Fetcher,
-  Pair,
-  Percent,
   Route,
   TokenAmount,
   Trade,
   TradeType,
-  WETH,
 } from '@uniswap/sdk';
-import formattedPriceImpact from '../FormattedPriceImpact';
 import { BaseProvider } from '@ethersproject/providers';
 import { ethers } from 'ethers';
-import {
+import formattedPriceImpact, {
   escapeRegExp,
   computeTradePriceBreakdown,
   computeSlippageAdjustedAmounts,
   inputRegex,
   isNonCalculableChange,
-  fetchToken,
+  fetchTokenFromCandidate,
 } from './utils';
 import { makeSwap } from './uniswap-service';
-export interface SwapCandidate {
-  address: string;
-  name: string;
-}
+import { SwapCandidate, SwapState, TradeInformation } from './swap.types';
 
 type Props = {
   chainId: ChainId;
-  origin?: SwapCandidate;
+  source?: SwapCandidate;
   target?: SwapCandidate;
-  slippagePercentage?: number;
+  slippagePercentage: number;
   provider?: BaseProvider;
   onError: (error: any) => void;
   onSwap: (swap: any) => void;
 };
 
-type TradeState = {
-  priceImpactWithoutFee: Percent | undefined;
-  realizedLPFee: CurrencyAmount | undefined | null;
-  hostAmount: string;
-  targetAmount: string;
+const initialSwapState: SwapState = {
+  sourceToken: null,
+  targetToken: null,
+  pair: null,
 };
 
-const initialTradeState: TradeState = {
+const initialTradeState: TradeInformation = {
+  trade: null,
   hostAmount: '',
   targetAmount: '',
   priceImpactWithoutFee: undefined,
@@ -53,46 +45,48 @@ const initialTradeState: TradeState = {
 };
 
 const Swap: FC<Props> = ({
+  source,
+  target,
   chainId,
   provider,
+  slippagePercentage,
   onSwap,
   onError,
-  ...tokens
 }: Props) => {
-  const { origin = WETH[chainId], target = WETH[chainId] } = tokens;
   const [loading, setLoading] = useState(false);
-  const [pair, setPair] = useState<Pair | null>(null);
-  const [trade, setTrade] = useState<Trade | null>(null);
+  const [swap, setSwap] = useState(initialSwapState);
   const [tradeInformation, setTradeInformation] = useState(initialTradeState);
 
-  const fetchRouter = useCallback(async () => {
+  const fetchPair = useCallback(async () => {
     try {
       setLoading(true);
-
-      const [originToken, targetToken] = await Promise.all([
-        fetchToken(chainId, origin, provider),
-        fetchToken(chainId, target, provider),
+      const [sourceToken, targetToken] = await Promise.all([
+        fetchTokenFromCandidate(chainId, source, provider),
+        fetchTokenFromCandidate(chainId, target, provider),
       ]);
-
       const pair = await Fetcher.fetchPairData(
-        originToken,
+        sourceToken,
         targetToken,
-        provider,
+        provider
       );
-
-      setPair(pair); // token1 = origin; token0 = target
+      setSwap({
+        sourceToken,
+        targetToken,
+        pair,
+      });
     } catch (error) {
       onError(error);
       console.error('error =>', error);
     } finally {
       setLoading(false);
     }
-  }, [origin, target, chainId, provider, onError]);
+  }, [source, target, chainId, provider, onError]);
 
   const handleHostAmountChange = (swapInput: string) => {
     const isValidChange = inputRegex.test(escapeRegExp(swapInput));
+    const { sourceToken, pair } = swap;
 
-    if (!isValidChange || !pair) {
+    if (!isValidChange || !pair || !sourceToken) {
       return;
     }
 
@@ -106,20 +100,20 @@ const Swap: FC<Props> = ({
     }
 
     const trade = new Trade(
-      new Route([pair], pair.token1),
+      new Route([pair], sourceToken),
       new TokenAmount(
-        pair.token1,
-        ethers.utils.parseUnits(swapInput, pair.token1.decimals).toString(),
+        sourceToken,
+        ethers.utils.parseUnits(swapInput, sourceToken.decimals).toString()
       ),
-      TradeType.EXACT_INPUT,
+      TradeType.EXACT_INPUT
     );
 
     const { priceImpactWithoutFee, realizedLPFee } = computeTradePriceBreakdown(
-      trade,
+      trade
     );
 
-    setTrade(trade);
     setTradeInformation({
+      trade,
       priceImpactWithoutFee,
       realizedLPFee,
       hostAmount: swapInput,
@@ -129,7 +123,9 @@ const Swap: FC<Props> = ({
 
   const handleTargetAmountChange = (swapInput: string) => {
     const isValidChange = inputRegex.test(escapeRegExp(swapInput));
-    if (!isValidChange || !pair) {
+    const { targetToken, pair } = swap;
+
+    if (!isValidChange || !pair || !targetToken) {
       return;
     }
 
@@ -143,19 +139,20 @@ const Swap: FC<Props> = ({
     }
 
     const trade = new Trade(
-      new Route([pair], pair.token0),
+      new Route([pair], targetToken),
       new TokenAmount(
-        pair.token0,
-        ethers.utils.parseUnits(swapInput, pair.token0.decimals).toString(),
+        targetToken,
+        ethers.utils.parseUnits(swapInput, targetToken.decimals).toString()
       ),
-      TradeType.EXACT_INPUT,
+      TradeType.EXACT_INPUT
     );
 
     const { priceImpactWithoutFee, realizedLPFee } = computeTradePriceBreakdown(
-      trade,
+      trade
     );
 
     setTradeInformation({
+      trade,
       priceImpactWithoutFee,
       realizedLPFee,
       targetAmount: swapInput,
@@ -164,24 +161,29 @@ const Swap: FC<Props> = ({
   };
 
   const handleSwap = async () => {
-    if (!pair || !trade) {
+    const { sourceToken, targetToken } = swap;
+    const { trade } = tradeInformation;
+
+    if (!sourceToken || !targetToken || !trade) {
       return;
     }
 
     try {
       const signer = new ethers.providers.Web3Provider(
-        (window as any).ethereum,
+        (window as any).ethereum
       ).getSigner();
-  
+
       const tx = await makeSwap({
+        sourceToken,
+        targetToken,
         signer,
-        pair,
         trade,
-        slippagePercentage: '2',
+        slippagePercentage: '1',
       });
-  
+
       onSwap(tx);
-      await tx.wait();
+      const receipt = await tx.wait();
+      console.log('receipt', receipt);
     } catch (error) {
       onError(error);
       console.error('error =>', error);
@@ -189,16 +191,19 @@ const Swap: FC<Props> = ({
   };
 
   useEffect(() => {
-    fetchRouter();
-  }, [fetchRouter]);
+    fetchPair();
+  }, [fetchPair]);
+
+  const canShowSwapPanel = !loading && swap.sourceToken && swap.targetToken;
+  const canShowTradeInformation = tradeInformation && tradeInformation.trade;
 
   return (
     <>
       {loading && <span>Loading</span>}
-      {!loading && pair && (
+      {canShowSwapPanel && (
         <>
           <label>
-            {`From (${origin.name}): `}
+            {`From ${swap.sourceToken?.symbol}: `}
             <br />
             <br />
             <input
@@ -211,7 +216,7 @@ const Swap: FC<Props> = ({
               placeholder="0.0"
               minLength={1}
               name="hostAmount"
-              onChange={(v) =>
+              onChange={v =>
                 handleHostAmountChange(v.target.value.replace(/,/g, '.'))
               }
             />
@@ -219,7 +224,7 @@ const Swap: FC<Props> = ({
           <br />
           <br />
           <label>
-            {`To (${target.name}):`}
+            {`To ${swap.targetToken?.symbol}:`}
             <br />
             <br />
             <input
@@ -231,27 +236,29 @@ const Swap: FC<Props> = ({
               pattern="^[0-9]*[.,]?[0-9]*$"
               placeholder="0.0"
               minLength={1}
-              onChange={(v) =>
+              onChange={v =>
                 handleTargetAmountChange(v.target.value.replace(/,/g, '.'))
               }
             />
           </label>
           <br />
           <br />
-          {tradeInformation && trade && (
+          {canShowTradeInformation && (
             <>
               <div>
-                {trade.tradeType === TradeType.EXACT_INPUT
+                {tradeInformation.trade?.tradeType === TradeType.EXACT_INPUT
                   ? 'Minimum received: ' +
-                    (computeSlippageAdjustedAmounts(trade).min.toSignificant(
-                      4,
-                    ) ?? '-') +
-                    (trade.outputAmount.currency.symbol ?? '')
+                    (computeSlippageAdjustedAmounts(
+                      tradeInformation.trade!,
+                      slippagePercentage
+                    ).min.toSignificant(4) ?? '-') +
+                    (tradeInformation.trade.outputAmount.currency.symbol ?? '')
                   : 'Maximum sold: ' +
-                    (computeSlippageAdjustedAmounts(trade).max.toSignificant(
-                      4,
-                    ) ?? '-') +
-                    (trade.inputAmount.currency.symbol ?? '')}
+                    (computeSlippageAdjustedAmounts(
+                      tradeInformation.trade!,
+                      slippagePercentage
+                    ).max.toSignificant(4) ?? '-') +
+                    (tradeInformation.trade?.inputAmount.currency.symbol ?? '')}
               </div>
               <div>
                 Price Impact:{' '}
@@ -263,7 +270,7 @@ const Swap: FC<Props> = ({
                 {tradeInformation.realizedLPFee
                   ? tradeInformation.realizedLPFee?.toSignificant(6) +
                     ' ' +
-                    (trade.inputAmount.currency.symbol ?? '')
+                    (tradeInformation.trade?.inputAmount.currency.symbol ?? '')
                   : '-'}
               </div>
               <br />

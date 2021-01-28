@@ -3,7 +3,7 @@ import { ethers } from 'ethers';
 import Swap from './components/swap/Swap';
 
 const defaultProvider = new ethers.providers.JsonRpcProvider(
-  process.env.REACT_APP_PROVIDER_URL,
+  process.env.REACT_APP_PROVIDER_URL
 );
 
 function App() {
@@ -13,8 +13,10 @@ function App() {
       <Swap
         chainId={ChainId.RINKEBY}
         provider={defaultProvider}
-        target={{
+        slippagePercentage={1}
+        source={{
           name: 'DAI',
+          symbol: 'DAI',
           address: '0x5592EC0cfb4dbc12D3aB100b257153436a1f0FEa',
         }}
         onSwap={() => {}}
