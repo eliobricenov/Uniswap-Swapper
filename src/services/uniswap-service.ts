@@ -1,7 +1,7 @@
 import { Percent, Token, WETH } from '@uniswap/sdk';
 import { ethers } from 'ethers';
-import { contractAddress, contractABI } from './contract';
-import { SwapParams, SwapFactoryParams } from './swap.types';
+import { contractAddress, contractABI } from '../contracts';
+import { SwapFactoryParams, SwapParams } from './uniswap-service.types';
 
 export const makeSwap = async ({
   sourceToken,

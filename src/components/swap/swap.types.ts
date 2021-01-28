@@ -1,6 +1,4 @@
-import { JsonRpcSigner } from '@ethersproject/providers';
 import { CurrencyAmount, Pair, Percent, Token, Trade } from '@uniswap/sdk';
-import { ethers } from 'ethers';
 
 export type SwapCandidate = {
   address: string;
@@ -20,26 +18,4 @@ export type TradeInformation = {
   realizedLPFee: CurrencyAmount | undefined | null;
   hostAmount: string;
   targetAmount: string;
-};
-
-export type SwapParams = {
-  sourceToken: Token;
-  targetToken: Token;
-  signer: JsonRpcSigner;
-  trade: Trade;
-  slippagePercentage: string;
-};
-
-export type SwapFactoryParams = {
-  value: string;
-  sourceToken: Token;
-  targetToken: Token;
-  uniswapContract: ethers.Contract;
-  amountIn: string;
-  amountOut: string;
-  amountInMax: string;
-  amountOutMin: string;
-  path: string[];
-  to: string;
-  deadline: number;
 };

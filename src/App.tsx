@@ -14,7 +14,7 @@ function App() {
         chainId={ChainId.RINKEBY}
         provider={defaultProvider}
         slippagePercentage={1}
-        source={{
+        target={{
           name: 'DAI',
           symbol: 'DAI',
           address: '0x5592EC0cfb4dbc12D3aB100b257153436a1f0FEa',

@@ -9,16 +9,17 @@ import {
 } from '@uniswap/sdk';
 import { BaseProvider } from '@ethersproject/providers';
 import { ethers } from 'ethers';
-import formattedPriceImpact, {
+import {
   escapeRegExp,
   computeTradePriceBreakdown,
-  computeSlippageAdjustedAmounts,
   inputRegex,
   isNonCalculableChange,
   fetchTokenFromCandidate,
-} from './utils';
-import { makeSwap } from './uniswap-service';
+} from '../../utils/uniswap.utils';
+import { makeSwap } from '../../services/uniswap-service';
 import { SwapCandidate, SwapState, TradeInformation } from './swap.types';
+import SwapInput from '../swap-input/SwapInput';
+import TradeStats from '../trade-stats/TradeStats';
 
 type Props = {
   chainId: ChainId;
@@ -54,6 +55,7 @@ const Swap: FC<Props> = ({
   onError,
 }: Props) => {
   const [loading, setLoading] = useState(false);
+  const [processing, setProcessing] = useState(false);
   const [swap, setSwap] = useState(initialSwapState);
   const [tradeInformation, setTradeInformation] = useState(initialTradeState);
 
@@ -173,6 +175,7 @@ const Swap: FC<Props> = ({
         (window as any).ethereum
       ).getSigner();
 
+      setProcessing(true);
       const tx = await makeSwap({
         sourceToken,
         targetToken,
@@ -187,6 +190,8 @@ const Swap: FC<Props> = ({
     } catch (error) {
       onError(error);
       console.error('error =>', error);
+    } finally {
+      setProcessing(false);
     }
   };
 
@@ -202,79 +207,33 @@ const Swap: FC<Props> = ({
       {loading && <span>Loading</span>}
       {canShowSwapPanel && (
         <>
-          <label>
-            {`From ${swap.sourceToken?.symbol}: `}
-            <br />
-            <br />
-            <input
-              value={tradeInformation.hostAmount}
-              type="text"
-              inputMode="decimal"
-              autoComplete="off"
-              autoCorrect="off"
-              pattern="^[0-9]*[.,]?[0-9]*$"
-              placeholder="0.0"
-              minLength={1}
-              name="hostAmount"
-              onChange={v =>
-                handleHostAmountChange(v.target.value.replace(/,/g, '.'))
-              }
-            />
-          </label>
+          <SwapInput
+            label={`From ${swap.sourceToken?.symbol}:`}
+            value={tradeInformation.hostAmount}
+            onChange={handleHostAmountChange}
+          />
           <br />
           <br />
-          <label>
-            {`To ${swap.targetToken?.symbol}:`}
-            <br />
-            <br />
-            <input
-              value={tradeInformation.targetAmount}
-              type="text"
-              inputMode="decimal"
-              autoComplete="off"
-              autoCorrect="off"
-              pattern="^[0-9]*[.,]?[0-9]*$"
-              placeholder="0.0"
-              minLength={1}
-              onChange={v =>
-                handleTargetAmountChange(v.target.value.replace(/,/g, '.'))
-              }
-            />
-          </label>
+          <SwapInput
+            label={`From ${swap.targetToken?.symbol}:`}
+            value={tradeInformation.targetAmount}
+            onChange={handleTargetAmountChange}
+          />
           <br />
           <br />
           {canShowTradeInformation && (
             <>
-              <div>
-                {tradeInformation.trade?.tradeType === TradeType.EXACT_INPUT
-                  ? 'Minimum received: ' +
-                    (computeSlippageAdjustedAmounts(
-                      tradeInformation.trade!,
-                      slippagePercentage
-                    ).min.toSignificant(4) ?? '-') +
-                    (tradeInformation.trade.outputAmount.currency.symbol ?? '')
-                  : 'Maximum sold: ' +
-                    (computeSlippageAdjustedAmounts(
-                      tradeInformation.trade!,
-                      slippagePercentage
-                    ).max.toSignificant(4) ?? '-') +
-                    (tradeInformation.trade?.inputAmount.currency.symbol ?? '')}
-              </div>
-              <div>
-                Price Impact:{' '}
-                {formattedPriceImpact(tradeInformation.priceImpactWithoutFee)}
-              </div>
-
-              <div>
-                Liquidity Provider Fee:{' '}
-                {tradeInformation.realizedLPFee
-                  ? tradeInformation.realizedLPFee?.toSignificant(6) +
-                    ' ' +
-                    (tradeInformation.trade?.inputAmount.currency.symbol ?? '')
-                  : '-'}
-              </div>
+              <TradeStats
+                trade={tradeInformation.trade!}
+                tradeType={TradeType.EXACT_INPUT}
+                slippagePercentage={slippagePercentage}
+                priceImpact={tradeInformation.priceImpactWithoutFee}
+                realizedFee={tradeInformation.realizedLPFee!}
+              />
               <br />
-              <button onClick={handleSwap}>SWAP</button>
+              <button disabled={processing} onClick={handleSwap}>
+                SWAP
+              </button>
             </>
           )}
         </>

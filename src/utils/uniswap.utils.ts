@@ -11,7 +11,7 @@ import {
   ChainId,
   WETH,
 } from '@uniswap/sdk';
-import { SwapCandidate } from './swap.types';
+import { SwapCandidate } from '../components/swap/swap.types';
 
 const BASE_FEE = new Percent(JSBI.BigInt(30), JSBI.BigInt(10000));
 const ONE_HUNDRED_PERCENT = new Percent(JSBI.BigInt(10000), JSBI.BigInt(10000));
@@ -24,7 +24,7 @@ export const ONE_BIPS = new Percent(JSBI.BigInt(1), JSBI.BigInt(10000));
 /**
  * Formatted version of price impact text with warning colors
  */
-export default function formattedPriceImpact(priceImpact?: Percent) {
+export default function formatPriceImpact(priceImpact?: Percent) {
   return priceImpact
     ? priceImpact.lessThan(ONE_BIPS)
       ? '<0.01%'
@@ -67,10 +67,6 @@ export const computeSlippageAdjustedAmounts = (
   allowedSlippage: number
 ): Record<string, CurrencyAmount> => {
   const pct = basisPointsToPercent(allowedSlippage);
-  console.log({
-    max: trade.maximumAmountIn(pct).toSignificant(4),
-    min: trade.minimumAmountOut(pct).toSignificant(4),
-  });
   return {
     max: trade.maximumAmountIn(pct),
     min: trade.minimumAmountOut(pct),
