@@ -11,13 +11,13 @@ function App() {
     <>
       <h1>SWAP</h1>
       <Swap
-        chainId={ChainId.RINKEBY}
+        chainId={ChainId.ROPSTEN}
         provider={defaultProvider}
         slippagePercentage={1}
         target={{
-          name: 'DAI',
-          symbol: 'DAI',
-          address: '0x5592EC0cfb4dbc12D3aB100b257153436a1f0FEa',
+          address: '0x09a33be88094268360b9e340efd3657bbf351aa6'.toLowerCase(),
+          name: 'stakedETH',
+          symbol: 'stETH',
         }}
         onSwap={() => {}}
         onError={() => {}}
