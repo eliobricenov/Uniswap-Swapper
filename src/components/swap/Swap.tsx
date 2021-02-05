@@ -1,12 +1,5 @@
-import { FC, useCallback, useEffect, useState } from 'react';
-import {
-  ChainId,
-  Fetcher,
-  Route,
-  TokenAmount,
-  Trade,
-  TradeType,
-} from '@uniswap/sdk';
+import { FC, useCallback, useEffect, useReducer, useState } from 'react';
+import { ChainId, Fetcher, TradeType } from '@uniswap/sdk';
 import { BaseProvider } from '@ethersproject/providers';
 import { ethers } from 'ethers';
 import {
@@ -15,11 +8,13 @@ import {
   inputRegex,
   isNonCalculableChange,
   fetchTokenFromCandidate,
+  getTrade,
 } from '../../utils/uniswap.utils';
 import { makeSwap } from '../../services/uniswap-service';
 import { SwapCandidate, SwapState, TradeInformation } from './swap.types';
 import SwapInput from '../swap-input/SwapInput';
 import TradeStats from '../trade-stats/TradeStats';
+import { ActionType, State, swapReducer } from './swap.reducer';
 
 type Props = {
   chainId: ChainId;
@@ -31,15 +26,12 @@ type Props = {
   onSwap: (swap: any) => void;
 };
 
-const initialSwapState: SwapState = {
+const initialState: State = {
   sourceToken: null,
   targetToken: null,
   pair: null,
-};
-
-const initialTradeState: TradeInformation = {
   trade: null,
-  hostAmount: '',
+  sourceAmount: '',
   targetAmount: '',
   priceImpactWithoutFee: undefined,
   realizedLPFee: null,
@@ -56,8 +48,7 @@ const Swap: FC<Props> = ({
 }: Props) => {
   const [loading, setLoading] = useState(false);
   const [processing, setProcessing] = useState(false);
-  const [swap, setSwap] = useState(initialSwapState);
-  const [tradeInformation, setTradeInformation] = useState(initialTradeState);
+  const [state, dispatch] = useReducer(swapReducer, initialState);
 
   const fetchPair = useCallback(async () => {
     try {
@@ -71,7 +62,8 @@ const Swap: FC<Props> = ({
         targetToken,
         provider
       );
-      setSwap({
+      dispatch({
+        type: ActionType.SWAP_CHANGE,
         sourceToken,
         targetToken,
         pair,
@@ -84,87 +76,103 @@ const Swap: FC<Props> = ({
     }
   }, [source, target, chainId, provider, onError]);
 
+  const invertSwapDirection = () => {
+    const {
+      sourceToken,
+      targetToken,
+      pair,
+      targetAmount,
+      sourceAmount,
+    } = state;
+
+    if (!pair || !targetToken) {
+      return;
+    }
+
+    const trade = getTrade(targetAmount, targetToken, pair);
+    const { priceImpactWithoutFee, realizedLPFee } = computeTradePriceBreakdown(
+      trade
+    );
+
+    dispatch({
+      type: ActionType.SWAP_DIRECTION_CHANGE,
+      sourceToken: targetToken,
+      targetToken: sourceToken,
+      pair,
+      trade,
+      priceImpactWithoutFee,
+      realizedLPFee,
+      sourceAmount: targetAmount,
+      targetAmount: sourceAmount,
+    });
+  };
+
   const handleHostAmountChange = (swapInput: string) => {
     const isValidChange = inputRegex.test(escapeRegExp(swapInput));
-    const { sourceToken, pair } = swap;
+    const { sourceToken, pair } = state;
 
     if (!isValidChange || !pair || !sourceToken) {
       return;
     }
 
     if (isNonCalculableChange(swapInput)) {
-      setTradeInformation({
-        ...tradeInformation,
-        hostAmount: swapInput,
+      dispatch({
+        type: ActionType.CALCULATION_CHANGE,
+        sourceAmount: swapInput,
         targetAmount: '',
       });
       return;
     }
 
-    const trade = new Trade(
-      new Route([pair], sourceToken),
-      new TokenAmount(
-        sourceToken,
-        ethers.utils.parseUnits(swapInput, sourceToken.decimals).toString()
-      ),
-      TradeType.EXACT_INPUT
-    );
-
+    const trade = getTrade(swapInput, sourceToken, pair);
     const { priceImpactWithoutFee, realizedLPFee } = computeTradePriceBreakdown(
       trade
     );
 
-    setTradeInformation({
+    dispatch({
+      type: ActionType.AMOUNT_CHANGE,
       trade,
       priceImpactWithoutFee,
       realizedLPFee,
-      hostAmount: swapInput,
+      sourceAmount: swapInput,
       targetAmount: trade.outputAmount.toSignificant(6),
     });
   };
 
   const handleTargetAmountChange = (swapInput: string) => {
     const isValidChange = inputRegex.test(escapeRegExp(swapInput));
-    const { targetToken, pair } = swap;
+    const { targetToken, pair } = state;
 
     if (!isValidChange || !pair || !targetToken) {
       return;
     }
 
     if (isNonCalculableChange(swapInput)) {
-      setTradeInformation({
-        ...tradeInformation,
-        hostAmount: swapInput,
+      dispatch({
+        type: ActionType.CALCULATION_CHANGE,
+        sourceAmount: swapInput,
         targetAmount: '',
       });
       return;
     }
 
-    const trade = new Trade(
-      new Route([pair], targetToken),
-      new TokenAmount(
-        targetToken,
-        ethers.utils.parseUnits(swapInput, targetToken.decimals).toString()
-      ),
-      TradeType.EXACT_INPUT
-    );
-
+    const trade = getTrade(swapInput, targetToken, pair);
     const { priceImpactWithoutFee, realizedLPFee } = computeTradePriceBreakdown(
       trade
     );
 
-    setTradeInformation({
+    dispatch({
+      type: ActionType.AMOUNT_CHANGE,
       trade,
       priceImpactWithoutFee,
       realizedLPFee,
       targetAmount: swapInput,
-      hostAmount: trade.outputAmount.toSignificant(6),
+      sourceAmount: trade.outputAmount.toSignificant(6),
     });
   };
 
   const handleSwap = async () => {
-    const { sourceToken, targetToken } = swap;
-    const { trade } = tradeInformation;
+    const { sourceToken, targetToken, trade } = state;
 
     if (!sourceToken || !targetToken || !trade) {
       return;
@@ -199,36 +207,46 @@ const Swap: FC<Props> = ({
     fetchPair();
   }, [fetchPair]);
 
-  const canShowSwapPanel = !loading && swap.sourceToken && swap.targetToken;
-  const canShowTradeInformation = tradeInformation && tradeInformation.trade;
+  const {
+    sourceToken,
+    sourceAmount,
+    targetToken,
+    targetAmount,
+    trade,
+    priceImpactWithoutFee,
+    realizedLPFee,
+  } = state;
 
   return (
     <>
       {loading && <span>Loading</span>}
-      {canShowSwapPanel && (
+      {!loading && sourceToken && targetToken && (
         <>
           <SwapInput
-            label={`From ${swap.sourceToken?.symbol}:`}
-            value={tradeInformation.hostAmount}
+            label={`From ${sourceToken.symbol}:`}
+            value={sourceAmount}
             onChange={handleHostAmountChange}
           />
           <br />
           <br />
+          <button onClick={invertSwapDirection}>Invert Direction</button>
+          <br />
+          <br />
           <SwapInput
-            label={`From ${swap.targetToken?.symbol}:`}
-            value={tradeInformation.targetAmount}
+            label={`From ${targetToken.symbol}:`}
+            value={targetAmount}
             onChange={handleTargetAmountChange}
           />
           <br />
           <br />
-          {canShowTradeInformation && (
+          {trade && priceImpactWithoutFee && realizedLPFee && (
             <>
               <TradeStats
-                trade={tradeInformation.trade!}
+                trade={trade}
                 tradeType={TradeType.EXACT_INPUT}
                 slippagePercentage={slippagePercentage}
-                priceImpact={tradeInformation.priceImpactWithoutFee}
-                realizedFee={tradeInformation.realizedLPFee!}
+                priceImpact={priceImpactWithoutFee}
+                realizedFee={realizedLPFee}
               />
               <br />
               <button disabled={processing} onClick={handleSwap}>

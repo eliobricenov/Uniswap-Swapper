@@ -36,6 +36,7 @@ export const makeSwap = async ({
 
   const path = [sourceToken.address, targetToken.address];
   const to = await signer.getAddress();
+  console.log('to', to);
   const deadline = Math.floor(Date.now() / 1000) + 60 * 20;
   const value = ethers.BigNumber.from(
     trade.inputAmount.raw.toString()
