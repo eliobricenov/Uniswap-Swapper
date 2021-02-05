@@ -107,7 +107,7 @@ const Swap: FC<Props> = ({
     });
   };
 
-  const handleHostAmountChange = (swapInput: string) => {
+  const handleSourceAmountChange = (swapInput: string) => {
     const isValidChange = inputRegex.test(escapeRegExp(swapInput));
     const { sourceToken, pair } = state;
 
@@ -150,8 +150,8 @@ const Swap: FC<Props> = ({
     if (isNonCalculableChange(swapInput)) {
       dispatch({
         type: ActionType.CALCULATION_CHANGE,
-        sourceAmount: swapInput,
-        targetAmount: '',
+        targetAmount: swapInput,
+        sourceAmount: '',
       });
       return;
     }
@@ -225,7 +225,7 @@ const Swap: FC<Props> = ({
           <SwapInput
             label={`From ${sourceToken.symbol}:`}
             value={sourceAmount}
-            onChange={handleHostAmountChange}
+            onChange={handleSourceAmountChange}
           />
           <br />
           <br />
