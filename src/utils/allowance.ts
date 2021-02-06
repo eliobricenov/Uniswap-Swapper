@@ -37,7 +37,6 @@ export const approveTransactionAmount = async ({
 
 export const approveIfRequired = async (params: AllowanceParams) => {
   const hasEnough = await hasEnoughAllowance(params);
-  console.log('approveIfRequired ~ hasEnough', hasEnough);
   if (!hasEnough) {
     await approveTransactionAmount(params);
   }

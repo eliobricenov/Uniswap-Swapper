@@ -51,7 +51,6 @@ export const makeSwap = async ({
   ).toHexString();
 
   const operationType = getOperationType(sourceToken, targetToken);
-  console.log('operationType', operationType);
 
   return swapFactory({
     operationType,
