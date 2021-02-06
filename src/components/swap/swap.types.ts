@@ -16,6 +16,6 @@ export type TradeInformation = {
   trade: Trade | null;
   priceImpactWithoutFee: Percent | undefined;
   realizedLPFee: CurrencyAmount | undefined | null;
-  hostAmount: string;
+  sourceAmount: string;
   targetAmount: string;
 };

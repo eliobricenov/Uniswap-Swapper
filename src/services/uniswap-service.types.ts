@@ -22,4 +22,16 @@ export type SwapFactoryParams = {
   path: string[];
   to: string;
   deadline: number;
+  signer: JsonRpcSigner;
+};
+
+export enum SwapOperations {
+  ETH_TO_TOKEN = 'ETH_TO_TOKEN',
+  TOKEN_TO_ETH = 'TOKEN_TO_ETH',
+  TOKEN_TO_TOKEN = 'TOKEN_TO_TOKEN',
+}
+
+export type SwapFactory = {
+  operationType: SwapOperations;
+  params: SwapFactoryParams;
 };

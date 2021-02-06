@@ -10,7 +10,11 @@ import {
   Fetcher,
   ChainId,
   WETH,
+  TradeType,
+  Route,
+  Pair,
 } from '@uniswap/sdk';
+import { ethers } from 'ethers';
 import { SwapCandidate } from '../components/swap/swap.types';
 
 const BASE_FEE = new Percent(JSBI.BigInt(30), JSBI.BigInt(10000));
@@ -31,6 +35,17 @@ export default function formatPriceImpact(priceImpact?: Percent) {
       : `${priceImpact.toFixed(2)}%`
     : '-';
 }
+
+export const getTrade = (input: string, targetToken: Token, pair: Pair) => {
+  return new Trade(
+    new Route([pair], targetToken),
+    new TokenAmount(
+      targetToken,
+      ethers.utils.parseUnits(input, targetToken.decimals).toString()
+    ),
+    TradeType.EXACT_INPUT
+  );
+};
 
 export const fetchTokenFromCandidate = async (
   chainId: ChainId,

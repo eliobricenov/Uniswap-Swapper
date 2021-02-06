@@ -1,7 +1,7 @@
 import React, { FC, useMemo } from 'react';
 import { CurrencyAmount, Percent, Trade, TradeType } from '@uniswap/sdk';
 import { computeSlippageAdjustedAmounts } from '../../utils';
-import formatPriceImpact from '../../utils/uniswap.utils';
+import formatPriceImpact from '../../utils/uniswap';
 
 type Props = {
   trade: Trade;
