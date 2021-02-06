@@ -9,9 +9,9 @@ import {
   isNonCalculableChange,
   fetchTokenFromCandidate,
   getTrade,
-} from '../../utils/uniswap.utils';
+} from '../../utils/uniswap';
 import { makeSwap } from '../../services/uniswap-service';
-import { SwapCandidate, SwapState, TradeInformation } from './swap.types';
+import { SwapCandidate } from './swap.types';
 import SwapInput from '../swap-input/SwapInput';
 import TradeStats from '../trade-stats/TradeStats';
 import { ActionType, State, swapReducer } from './swap.reducer';
@@ -229,9 +229,13 @@ const Swap: FC<Props> = ({
           />
           <br />
           <br />
-          <button onClick={invertSwapDirection}>Invert Direction</button>
-          <br />
-          <br />
+          {trade && (
+            <>
+              <button onClick={invertSwapDirection}>Invert Direction</button>
+              <br />
+              <br />
+            </>
+          )}
           <SwapInput
             label={`From ${targetToken.symbol}:`}
             value={targetAmount}
