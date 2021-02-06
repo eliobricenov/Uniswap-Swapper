@@ -31,7 +31,8 @@ export const approveTransactionAmount = async ({
 }: AllowanceParams) => {
   const tokenContract = new Contract(tokenAddress, erc20ABI, signer);
   const amountToAllow = BigNumber.from(amount).toHexString();
-  await tokenContract.approve(spenderAddress, amountToAllow);
+  const tx = await tokenContract.approve(spenderAddress, amountToAllow);
+  await tx.wait();
 };
 
 export const approveIfRequired = async (params: AllowanceParams) => {
