@@ -1,7 +1,16 @@
 import { Percent, Token, WETH } from '@uniswap/sdk';
 import { ethers } from 'ethers';
+import { SwapParams, SwapOperations } from './uniswap-service.types';
+import swapFactory from './uniswap-factory';
 import { contractAddress, contractABI } from '../contracts';
-import { SwapFactoryParams, SwapParams } from './uniswap-service.types';
+
+const isWETH = (token: Token) => WETH[token.chainId].address === token.address;
+
+const getOperationType = (sourceToken: Token, targetToken: Token) => {
+  if (isWETH(sourceToken)) return SwapOperations.ETH_TO_TOKEN;
+  if (isWETH(targetToken)) return SwapOperations.TOKEN_TO_ETH;
+  return SwapOperations.TOKEN_TO_TOKEN;
+};
 
 export const makeSwap = async ({
   sourceToken,
@@ -36,69 +45,29 @@ export const makeSwap = async ({
 
   const path = [sourceToken.address, targetToken.address];
   const to = await signer.getAddress();
-  console.log('to', to);
   const deadline = Math.floor(Date.now() / 1000) + 60 * 20;
   const value = ethers.BigNumber.from(
     trade.inputAmount.raw.toString()
   ).toHexString();
 
+  const operationType = getOperationType(sourceToken, targetToken);
+  console.log('operationType', operationType);
+
   return swapFactory({
-    value,
-    sourceToken,
-    targetToken,
-    uniswapContract,
-    amountIn,
-    amountOut,
-    amountOutMin,
-    amountInMax,
-    path,
-    to,
-    deadline,
-  });
-};
-
-const isWETH = (token: Token) => WETH[token.chainId].address === token.address;
-
-const swapFactory = async ({
-  value,
-  sourceToken,
-  targetToken,
-  uniswapContract,
-  amountIn,
-  amountInMax,
-  amountOut,
-  amountOutMin,
-  path,
-  to,
-  deadline,
-}: SwapFactoryParams) => {
-  if (isWETH(sourceToken)) {
-    return uniswapContract.swapExactETHForTokens(
-      amountOutMin,
-      path,
-      to,
-      deadline,
-      {
-        value,
-      }
-    );
-  }
-
-  if (isWETH(targetToken)) {
-    return uniswapContract.swapTokensForExactETH(
+    operationType,
+    params: {
+      value,
+      sourceToken,
+      targetToken,
+      uniswapContract,
+      amountIn,
       amountOut,
+      amountOutMin,
       amountInMax,
       path,
       to,
-      deadline
-    );
-  }
-
-  return uniswapContract.swapExactTokensForTokens(
-    amountIn,
-    amountOutMin,
-    path,
-    to,
-    deadline
-  );
+      deadline,
+      signer,
+    },
+  });
 };
