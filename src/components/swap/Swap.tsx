@@ -14,7 +14,7 @@ import { makeSwap } from '../../services/uniswap-service';
 import { SwapCandidate } from './swap.types';
 import SwapInput from '../swap-input/SwapInput';
 import TradeStats from '../trade-stats/TradeStats';
-import { ActionType, State, swapReducer } from './swap.reducer';
+import { ActionType, initialState, State, swapReducer } from './swap.reducer';
 
 type Props = {
   chainId: ChainId;
@@ -24,17 +24,6 @@ type Props = {
   provider?: BaseProvider;
   onError: (error: any) => void;
   onSwap: (swap: any) => void;
-};
-
-const initialState: State = {
-  sourceToken: null,
-  targetToken: null,
-  pair: null,
-  trade: null,
-  sourceAmount: '',
-  targetAmount: '',
-  priceImpactWithoutFee: undefined,
-  realizedLPFee: null,
 };
 
 const Swap: FC<Props> = ({
@@ -53,6 +42,7 @@ const Swap: FC<Props> = ({
   const fetchPair = useCallback(async () => {
     try {
       setLoading(true);
+      dispatch({ type: ActionType.RESET_STATE });
       const [sourceToken, targetToken] = await Promise.all([
         fetchTokenFromCandidate(chainId, source, provider),
         fetchTokenFromCandidate(chainId, target, provider),

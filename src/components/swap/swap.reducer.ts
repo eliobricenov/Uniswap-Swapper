@@ -16,6 +16,7 @@ export enum ActionType {
   AMOUNT_CHANGE = 'AMOUNT_CHANGE',
   CALCULATION_CHANGE = 'CALCULATION_CHANGE',
   SWAP_DIRECTION_CHANGE = 'INVERT_DIRECTION',
+  RESET_STATE = 'RESET_STATE',
 }
 
 type SwapChange = {
@@ -43,11 +44,27 @@ type SwapDirectionChange = {
   type: ActionType.SWAP_DIRECTION_CHANGE;
 } & Required<State>;
 
+type ResetState = {
+  type: ActionType.RESET_STATE;
+};
+
 export type Action =
   | SwapChange
   | SourceAmountChange
   | SwapDirectionChange
-  | SwapCalculationChange;
+  | SwapCalculationChange
+  | ResetState;
+
+export const initialState: State = {
+  sourceToken: null,
+  targetToken: null,
+  pair: null,
+  trade: null,
+  sourceAmount: '',
+  targetAmount: '',
+  priceImpactWithoutFee: undefined,
+  realizedLPFee: null,
+};
 
 export const swapReducer = (state: State, action: Action): State => {
   switch (action.type) {
@@ -76,6 +93,8 @@ export const swapReducer = (state: State, action: Action): State => {
     case ActionType.SWAP_DIRECTION_CHANGE:
       const { type, ...newState } = action;
       return newState;
+    case ActionType.RESET_STATE:
+      return initialState;
     default:
       return state;
   }
