@@ -4,7 +4,8 @@ import { SwapParams, SwapOperations } from './uniswap-service.types';
 import swapFactory from './uniswap-factory';
 import { contractAddress, contractABI } from '../contracts';
 
-const isWETH = (token: Token) => WETH[token.chainId].address === token.address;
+export const isWETH = (token: Token) =>
+  WETH[token.chainId].address === token.address;
 
 const getOperationType = (sourceToken: Token, targetToken: Token) => {
   if (isWETH(sourceToken)) return SwapOperations.ETH_TO_TOKEN;

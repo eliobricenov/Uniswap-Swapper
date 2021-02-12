@@ -1,5 +1,5 @@
 import { FC, useCallback, useEffect, useReducer, useState } from 'react';
-import { ChainId, Fetcher, TradeType } from '@uniswap/sdk';
+import { ChainId, Fetcher, Token, TradeType } from '@uniswap/sdk';
 import { BaseProvider } from '@ethersproject/providers';
 import { ethers } from 'ethers';
 import {
@@ -9,12 +9,14 @@ import {
   isNonCalculableChange,
   fetchTokenFromCandidate,
   getTrade,
+  computeSlippageAdjustedAmounts,
 } from '../../utils/uniswap';
-import { makeSwap } from '../../services/uniswap-service';
+import { isWETH, makeSwap } from '../../services/uniswap-service';
 import { SwapCandidate } from './swap.types';
 import SwapInput from '../swap-input/SwapInput';
 import TradeStats from '../trade-stats/TradeStats';
-import { ActionType, initialState, State, swapReducer } from './swap.reducer';
+import { ActionType, initialState, swapReducer } from './swap.reducer';
+import { erc20ABI } from '../../contracts';
 
 type Props = {
   chainId: ChainId;
@@ -30,19 +32,24 @@ const Swap: FC<Props> = ({
   source,
   target,
   chainId,
-  provider,
+  provider = ethers.providers.getDefaultProvider(),
   slippagePercentage,
   onSwap,
   onError,
 }: Props) => {
   const [loading, setLoading] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [signer, setSigner] = useState<
+    ethers.providers.JsonRpcSigner | undefined
+  >(undefined);
   const [state, dispatch] = useReducer(swapReducer, initialState);
 
   const fetchPair = useCallback(async () => {
     try {
       setLoading(true);
-      dispatch({ type: ActionType.RESET_STATE });
+
+      // todo reduce wait time with a batch load
+      dispatch({ type: ActionType.RESET });
       const [sourceToken, targetToken] = await Promise.all([
         fetchTokenFromCandidate(chainId, source, provider),
         fetchTokenFromCandidate(chainId, target, provider),
@@ -52,11 +59,25 @@ const Swap: FC<Props> = ({
         targetToken,
         provider
       );
+
+      const ethBalance = await signer?.getBalance();
+      const [sourceTokenBalance, targetTokenBalance] = await Promise.all([
+        new ethers.Contract(sourceToken.address, erc20ABI, signer).balanceOf(
+          signer?.getAddress()
+        ),
+        new ethers.Contract(targetToken.address, erc20ABI, signer).balanceOf(
+          signer?.getAddress()
+        ),
+      ]);
+
       dispatch({
-        type: ActionType.SWAP_CHANGE,
+        type: ActionType.UPDATE_PAIR,
         sourceToken,
         targetToken,
         pair,
+        sourceTokenBalance: ethers.BigNumber.from(sourceTokenBalance),
+        targetTokenBalance: ethers.BigNumber.from(targetTokenBalance),
+        ethBalance: ethBalance,
       });
     } catch (error) {
       onError(error);
@@ -64,9 +85,9 @@ const Swap: FC<Props> = ({
     } finally {
       setLoading(false);
     }
-  }, [source, target, chainId, provider, onError]);
+  }, [source, target, chainId, provider, signer, onError]);
 
-  const invertSwapDirection = () => {
+  const flipSwapDirectionAndRecalculate = () => {
     const {
       sourceToken,
       targetToken,
@@ -85,7 +106,7 @@ const Swap: FC<Props> = ({
     );
 
     dispatch({
-      type: ActionType.SWAP_DIRECTION_CHANGE,
+      type: ActionType.FLIP_DIRECTION_AND_RECALCULATE,
       sourceToken: targetToken,
       targetToken: sourceToken,
       pair,
@@ -97,17 +118,38 @@ const Swap: FC<Props> = ({
     });
   };
 
-  const handleSourceAmountChange = (swapInput: string) => {
-    const isValidChange = inputRegex.test(escapeRegExp(swapInput));
-    const { sourceToken, pair } = state;
+  const handleFlipDirection = () => {
+    const { sourceAmount, targetAmount, pair } = state;
 
-    if (!isValidChange || !pair || !sourceToken) {
+    if (loading) {
+      return;
+    }
+
+    if (sourceAmount && targetAmount && pair) {
+      flipSwapDirectionAndRecalculate();
+      return;
+    }
+
+    dispatch({ type: ActionType.FLIP_DIRECTION });
+  };
+
+  const handleSourceAmountChange = async (swapInput: string) => {
+    const isValidChange = inputRegex.test(escapeRegExp(swapInput));
+    const { sourceToken, pair, sourceTokenBalance, ethBalance } = state;
+
+    if (
+      !isValidChange ||
+      !pair ||
+      !sourceToken ||
+      !sourceTokenBalance ||
+      !ethBalance
+    ) {
       return;
     }
 
     if (isNonCalculableChange(swapInput)) {
       dispatch({
-        type: ActionType.CALCULATION_CHANGE,
+        type: ActionType.UPDATE_CALCULATION,
         sourceAmount: swapInput,
         targetAmount: '',
       });
@@ -115,12 +157,23 @@ const Swap: FC<Props> = ({
     }
 
     const trade = getTrade(swapInput, sourceToken, pair);
+
+    const balance = isWETH(sourceToken) ? ethBalance : sourceTokenBalance;
     const { priceImpactWithoutFee, realizedLPFee } = computeTradePriceBreakdown(
       trade
     );
 
+    console.log('use ETH =>', isWETH(sourceToken));
+    console.log('available =>', balance.toString());
+    console.log('needed =>', trade.inputAmount.raw.toString());
+
+    console.log(
+      'enough balance =>',
+      balance.gte(trade.inputAmount.raw.toString())
+    );
+
     dispatch({
-      type: ActionType.AMOUNT_CHANGE,
+      type: ActionType.UPDATE_AMOUNT,
       trade,
       priceImpactWithoutFee,
       realizedLPFee,
@@ -139,7 +192,7 @@ const Swap: FC<Props> = ({
 
     if (isNonCalculableChange(swapInput)) {
       dispatch({
-        type: ActionType.CALCULATION_CHANGE,
+        type: ActionType.UPDATE_CALCULATION,
         targetAmount: swapInput,
         sourceAmount: '',
       });
@@ -147,12 +200,13 @@ const Swap: FC<Props> = ({
     }
 
     const trade = getTrade(swapInput, targetToken, pair);
+
     const { priceImpactWithoutFee, realizedLPFee } = computeTradePriceBreakdown(
       trade
     );
 
     dispatch({
-      type: ActionType.AMOUNT_CHANGE,
+      type: ActionType.UPDATE_AMOUNT,
       trade,
       priceImpactWithoutFee,
       realizedLPFee,
@@ -164,15 +218,11 @@ const Swap: FC<Props> = ({
   const handleSwap = async () => {
     const { sourceToken, targetToken, trade } = state;
 
-    if (!sourceToken || !targetToken || !trade) {
+    if (!sourceToken || !targetToken || !trade || !signer) {
       return;
     }
 
     try {
-      const signer = new ethers.providers.Web3Provider(
-        (window as any).ethereum
-      ).getSigner();
-
       setProcessing(true);
       const tx = await makeSwap({
         sourceToken,
@@ -183,6 +233,7 @@ const Swap: FC<Props> = ({
       });
 
       onSwap(tx);
+      setProcessing(false);
       const receipt = await tx.wait();
       console.log('receipt', receipt);
     } catch (error) {
@@ -196,6 +247,25 @@ const Swap: FC<Props> = ({
   useEffect(() => {
     fetchPair();
   }, [fetchPair]);
+
+  useEffect(() => {
+    const loadEthereum = async () => {
+      setLoading(true);
+      try {
+        await (window as any).ethereum.enable();
+        setSigner(
+          new ethers.providers.Web3Provider(
+            (window as any).ethereum
+          ).getSigner()
+        );
+      } catch (error) {
+        console.error('error =>', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadEthereum();
+  }, []);
 
   const {
     sourceToken,
@@ -221,7 +291,7 @@ const Swap: FC<Props> = ({
           <br />
           {trade && (
             <>
-              <button onClick={invertSwapDirection}>Invert Direction</button>
+              <button onClick={handleFlipDirection}>Invert Direction</button>
               <br />
               <br />
             </>
@@ -243,6 +313,7 @@ const Swap: FC<Props> = ({
                 realizedFee={realizedLPFee}
               />
               <br />
+              {processing && <span>Processing</span>}
               <button disabled={processing} onClick={handleSwap}>
                 SWAP
               </button>

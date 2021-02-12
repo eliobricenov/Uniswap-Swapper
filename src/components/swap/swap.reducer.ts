@@ -1,34 +1,49 @@
 import { Token, Pair, Trade, Percent, CurrencyAmount } from '@uniswap/sdk';
+import { BigNumber } from 'ethers';
 
 export type State = {
-  sourceToken: Token | null;
-  targetToken: Token | null;
-  pair: Pair | null;
-  trade: Trade | null;
-  priceImpactWithoutFee: Percent | undefined | null;
-  realizedLPFee: CurrencyAmount | undefined | null;
+  sourceToken: Token | undefined;
+  targetToken: Token | undefined;
+  pair: Pair | undefined;
+  trade: Trade | undefined;
+  priceImpactWithoutFee: Percent | undefined;
+  realizedLPFee: CurrencyAmount | undefined;
   sourceAmount: string;
   targetAmount: string;
+  ethBalance: BigNumber | undefined;
+  sourceTokenBalance: BigNumber | undefined;
+  targetTokenBalance: BigNumber | undefined;
 };
 
 export enum ActionType {
-  SWAP_CHANGE = 'SWAP_CHANGE',
-  AMOUNT_CHANGE = 'AMOUNT_CHANGE',
-  CALCULATION_CHANGE = 'CALCULATION_CHANGE',
-  SWAP_DIRECTION_CHANGE = 'INVERT_DIRECTION',
-  RESET_STATE = 'RESET_STATE',
+  UPDATE_PAIR = 'PAIR_CHANGE',
+  UPDATE_AMOUNT = 'AMOUNT_CHANGE',
+  UPDATE_CALCULATION = 'CALCULATION_CHANGE',
+  FLIP_DIRECTION_AND_RECALCULATE = 'INVERT_AND_RECALCULATE',
+  FLIP_DIRECTION = 'INVERT',
+  RESET = 'RESET_STATE',
 }
 
-type SwapChange = {
-  type: ActionType.SWAP_CHANGE;
-} & Required<Pick<State, 'sourceToken' | 'targetToken' | 'pair'>>;
+type UpdatePair = {
+  type: ActionType.UPDATE_PAIR;
+} & Required<
+  Pick<
+    State,
+    | 'sourceToken'
+    | 'targetToken'
+    | 'pair'
+    | 'ethBalance'
+    | 'sourceTokenBalance'
+    | 'targetTokenBalance'
+  >
+>;
 
-type SwapCalculationChange = {
-  type: ActionType.CALCULATION_CHANGE;
+type UpdateAmount = {
+  type: ActionType.UPDATE_CALCULATION;
 } & Pick<State, 'sourceAmount' | 'targetAmount'>;
 
-type SourceAmountChange = {
-  type: ActionType.AMOUNT_CHANGE;
+type UpdateCalculation = {
+  type: ActionType.UPDATE_AMOUNT;
 } & Required<
   Pick<
     State,
@@ -40,60 +55,62 @@ type SourceAmountChange = {
   >
 >;
 
-type SwapDirectionChange = {
-  type: ActionType.SWAP_DIRECTION_CHANGE;
-} & Required<State>;
+type InvertDirectionAndRecalculate = {
+  type: ActionType.FLIP_DIRECTION_AND_RECALCULATE;
+} & Required<
+  Omit<State, 'sourceTokenBalance' | 'targetTokenBalance' | 'ethBalance'>
+>;
+
+type InvertDirection = {
+  type: ActionType.FLIP_DIRECTION;
+};
 
 type ResetState = {
-  type: ActionType.RESET_STATE;
+  type: ActionType.RESET;
 };
 
 export type Action =
-  | SwapChange
-  | SourceAmountChange
-  | SwapDirectionChange
-  | SwapCalculationChange
+  | UpdatePair
+  | UpdateAmount
+  | UpdateCalculation
+  | InvertDirectionAndRecalculate
+  | InvertDirection
+  | UpdateAmount
   | ResetState;
 
 export const initialState: State = {
-  sourceToken: null,
-  targetToken: null,
-  pair: null,
-  trade: null,
+  sourceToken: undefined,
+  sourceTokenBalance: undefined,
+  targetTokenBalance: undefined,
+  targetToken: undefined,
+  pair: undefined,
+  trade: undefined,
   sourceAmount: '',
   targetAmount: '',
+  ethBalance: undefined,
   priceImpactWithoutFee: undefined,
-  realizedLPFee: null,
+  realizedLPFee: undefined,
 };
 
 export const swapReducer = (state: State, action: Action): State => {
+  const { type, ...values } = action;
+
   switch (action.type) {
-    case ActionType.SWAP_CHANGE:
+    case ActionType.FLIP_DIRECTION:
       return {
         ...state,
-        sourceToken: action.sourceToken,
-        targetToken: action.targetToken,
-        pair: action.pair,
+        sourceToken: state.targetToken,
+        targetToken: state.sourceToken,
       };
-    case ActionType.CALCULATION_CHANGE:
+    case ActionType.UPDATE_PAIR:
+    case ActionType.UPDATE_CALCULATION:
+    case ActionType.UPDATE_AMOUNT:
+    case ActionType.FLIP_DIRECTION_AND_RECALCULATE:
       return {
         ...state,
-        sourceAmount: action.sourceAmount,
-        targetAmount: action.targetAmount,
+        ...values,
       };
-    case ActionType.AMOUNT_CHANGE:
-      return {
-        ...state,
-        trade: action.trade,
-        priceImpactWithoutFee: action.priceImpactWithoutFee,
-        realizedLPFee: action.realizedLPFee,
-        sourceAmount: action.sourceAmount,
-        targetAmount: action.targetAmount,
-      };
-    case ActionType.SWAP_DIRECTION_CHANGE:
-      const { type, ...newState } = action;
-      return newState;
-    case ActionType.RESET_STATE:
+    case ActionType.RESET:
       return initialState;
     default:
       return state;

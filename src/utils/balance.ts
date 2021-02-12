@@ -7,6 +7,7 @@ export type BalanceParams = {
   signer: providers.JsonRpcSigner;
 };
 
+// TODO: turn this into a hook
 export const hasEnoughBalance = async ({
   tokenAddress,
   signer,
