@@ -1,5 +1,5 @@
 import { FC, useCallback, useEffect, useReducer, useState } from 'react';
-import { ChainId, Fetcher, Token, TradeType } from '@uniswap/sdk';
+import { ChainId, Fetcher, TradeType } from '@uniswap/sdk';
 import { BaseProvider } from '@ethersproject/providers';
 import { ethers } from 'ethers';
 import {
@@ -9,7 +9,6 @@ import {
   isNonCalculableChange,
   fetchTokenFromCandidate,
   getTrade,
-  computeSlippageAdjustedAmounts,
 } from '../../utils/uniswap';
 import { isWETH, makeSwap } from '../../services/uniswap-service';
 import { SwapCandidate } from './swap.types';
@@ -37,17 +36,17 @@ const Swap: FC<Props> = ({
   onSwap,
   onError,
 }: Props) => {
+  const [state, dispatch] = useReducer(swapReducer, initialState);
   const [loading, setLoading] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [txBlocker, setTxBlocker] = useState<string | undefined>();
   const [signer, setSigner] = useState<
     ethers.providers.JsonRpcSigner | undefined
   >(undefined);
-  const [state, dispatch] = useReducer(swapReducer, initialState);
 
   const fetchPair = useCallback(async () => {
     try {
       setLoading(true);
-
       // todo reduce wait time with a batch load
       dispatch({ type: ActionType.RESET });
       const [sourceToken, targetToken] = await Promise.all([
@@ -162,15 +161,15 @@ const Swap: FC<Props> = ({
     const { priceImpactWithoutFee, realizedLPFee } = computeTradePriceBreakdown(
       trade
     );
+    const enoughBalance = balance.gte(trade.inputAmount.raw.toString());
 
-    console.log('use ETH =>', isWETH(sourceToken));
-    console.log('available =>', balance.toString());
-    console.log('needed =>', trade.inputAmount.raw.toString());
-
-    console.log(
-      'enough balance =>',
-      balance.gte(trade.inputAmount.raw.toString())
-    );
+    if (!enoughBalance) {
+      setTxBlocker(
+        `Not enough ${sourceToken.symbol || source?.symbol} balance`
+      );
+    } else {
+      setTxBlocker(undefined);
+    }
 
     dispatch({
       type: ActionType.UPDATE_AMOUNT,
@@ -184,9 +183,15 @@ const Swap: FC<Props> = ({
 
   const handleTargetAmountChange = (swapInput: string) => {
     const isValidChange = inputRegex.test(escapeRegExp(swapInput));
-    const { targetToken, pair } = state;
+    const { targetToken, pair, ethBalance, targetTokenBalance } = state;
 
-    if (!isValidChange || !pair || !targetToken) {
+    if (
+      !isValidChange ||
+      !pair ||
+      !targetToken ||
+      !ethBalance ||
+      !targetTokenBalance
+    ) {
       return;
     }
 
@@ -200,10 +205,20 @@ const Swap: FC<Props> = ({
     }
 
     const trade = getTrade(swapInput, targetToken, pair);
-
+    const balance = isWETH(targetToken) ? ethBalance : targetTokenBalance;
     const { priceImpactWithoutFee, realizedLPFee } = computeTradePriceBreakdown(
       trade
     );
+
+    const enoughBalance = balance.gte(trade.inputAmount.raw.toString());
+
+    if (!enoughBalance) {
+      setTxBlocker(
+        `Not enough ${targetToken.symbol || target?.symbol} balance`
+      );
+    } else {
+      setTxBlocker(undefined);
+    }
 
     dispatch({
       type: ActionType.UPDATE_AMOUNT,
@@ -313,10 +328,13 @@ const Swap: FC<Props> = ({
                 realizedFee={realizedLPFee}
               />
               <br />
-              {processing && <span>Processing</span>}
-              <button disabled={processing} onClick={handleSwap}>
-                SWAP
-              </button>
+              {txBlocker ? (
+                <button disabled>{txBlocker}</button>
+              ) : (
+                <button disabled={processing} onClick={handleSwap}>
+                  SWAP
+                </button>
+              )}
             </>
           )}
         </>
